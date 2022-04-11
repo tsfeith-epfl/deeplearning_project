@@ -1,5 +1,10 @@
 import torch
 from torch import nn
+from torchvision import transforms
+import random
+import matplotlib.pyplot as plt
+from torchvision.utils import save_image
+import cv2
 
 class Model ():
     def __init__(self):
@@ -87,7 +92,27 @@ class Model ():
         """
 
         pass
-
+    
+def data_augmentation(imgs_1, imgs_2):
+    # I think that by setting the seed we apply the same transformations to both image sets, still need to verify
+    
+    H, W = imgs_1.shape[2], imgs_1.shape[3]
+    
+    augs = transforms.Compose([transforms.RandomHorizontalFlip(p=0.5),
+                               transforms.RandomResizedCrop((H,W), scale = (0.3, 1.0)),
+                               #transforms.RandomRotation(90, fill = True),
+                               transforms.RandomVerticalFlip(p=0.5),
+                               transforms.GaussianBlur(kernel_size = 5),
+                               transforms.RandomSolarize(threshold = 130)])
+    
+    seed = random.randint(0,100)
+    torch.manual_seed(seed)
+    augs_1 = augs(imgs_1)
+    torch.manual_seed(seed)
+    augs_2 = augs(imgs_2)
+    
+    return augs_1, augs_2
+    
 def psnr (denoised, ground_truth):
     """
     Compute the peak signal to noise ratio.
@@ -113,11 +138,19 @@ def psnr (denoised, ground_truth):
     psnr = -10*torch.log10(mse+10**-8)
     return psnr
 
-def transform_imgs(imgs_1, imgs_2):
-    # for these transformations doesn't make much sense to add noise
-    # we can try croppings, gaussian, solarization, flips, rotations,....
-    # I still need to figure out how to apply exactly the same transformations to the input and the target
-    pass
+noisy_imgs_1, noisy_imgs_2 = torch.load('../data/train_data.pkl ')
+noisy_imgs, clean_img = torch.load('../data/val_data.pkl ')
 
-noisy_imgs_1, noisy_imgs_2 = torch.load ('train_data.pkl ')
-noisy_imgs, clean_img = torch.load ('val_data.pkl ')
+new_imgs_1, new_imgs_2 = data_augmentation(noisy_imgs_1[:10,:,:,:], noisy_imgs_2[:10,:,:,:])
+
+# plt.imview(noisy_imgs_1[0,:,:,:].permute(1,2,0))
+print(noisy_imgs_1[0])
+cv2.imwrite('noisy_1.png', noisy_imgs_1[0].permute(1,2,0).cpu().numpy())
+cv2.imwrite('noisy_2.png', noisy_imgs_2[0].permute(1,2,0).cpu().numpy())
+cv2.imwrite('new_1.png', new_imgs_1[0].permute(1,2,0).cpu().numpy())
+cv2.imwrite('new_2.png', new_imgs_2[0].permute(1,2,0).cpu().numpy())
+
+#save_image(noisy_imgs_1[0], 'noisy_1.png')
+#save_image(noisy_imgs_2[0], 'noisy_2.png')
+#save_image(new_imgs_1[0], 'new_1.png')
+#save_image(new_imgs_2[0], 'new_2.png')
