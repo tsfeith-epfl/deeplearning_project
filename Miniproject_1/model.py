@@ -1,10 +1,12 @@
 import torch
 from torch import nn
+from torch.nn import functional as F
+from torch import optim
 from torchvision import transforms
 import random
 import cv2
 
-class Model ():
+class Model(nn.Module):
     def __init__(self):
         """
         Instantiate model, optimizer, loss function, any other stuff needed.
@@ -13,18 +15,9 @@ class Model ():
         -------
         None
         """
-        super().__init__()
-        
-        # try different criterion (like MSELoss or NLLLoss or L1Loss), optimizer (like Adam or ASGD)
-        self.criterion = nn.CrossEntropyLoss()
-        self.optimizer = optim.SGD(model.parameters(), lr = 1e-1)
-        # epochs and batch size are placeholders, might need more epochs and we may need to reduce batch size
-        self.nb_epochs = 250
-        self.mini_batch_size = 100 
+        super(Model, self).__init__()
         
         # All convolutions use padding mode “same”
-        # CHECK ALL INPUT SIZES (OUTPUTS SHOULD BE CORRECT) - LOOK AT U-NET PAPER/U-NET IMPLEMENTATIONS
-        # STARTED IT, IT'S NOT FINISHED, THERE ARE STILL SEVERAL LAYERS MISSING
         self.enc_conv0 = nn.Conv2d(3, 48, kernel_size=3, padding='same')
         self.enc_conv1 = nn.Conv2d(48, 48, kernel_size=3, padding='same')
         self.pool1 = nn.MaxPool2d(kernel_size=2)
@@ -38,9 +31,29 @@ class Model ():
         self.pool5 = nn.MaxPool2d(kernel_size=2)
         self.enc_conv6 = nn.Conv2d(48, 48, kernel_size=3, padding='same')
         self.upsample5 = nn.Upsample(scale_factor=2)
-        # after this we concatenate with result from pool4
         self.dec_conv5a = nn.Conv2d(96, 96, kernel_size=3, padding='same')
         self.dec_conv5b = nn.Conv2d(96, 96, kernel_size=3, padding='same')
+        self.upsample4 = nn.Upsample(scale_factor=2)
+        self.dec_conv4a = nn.Conv2d(144, 96, kernel_size=3, padding='same')
+        self.dec_conv4b = nn.Conv2d(96, 96, kernel_size=3, padding='same')
+        self.upsample3 = nn.Upsample(scale_factor=2)
+        self.dec_conv3a = nn.Conv2d(144, 96, kernel_size=3, padding='same')
+        self.dec_conv3b = nn.Conv2d(96, 96, kernel_size=3, padding='same')
+        self.upsample2 = nn.Upsample(scale_factor=2)
+        self.dec_conv2a = nn.Conv2d(144, 96, kernel_size=3, padding='same')
+        self.dec_conv2b = nn.Conv2d(96, 96, kernel_size=3, padding='same')
+        self.upsample1 = nn.Upsample(scale_factor=2)
+        self.dec_conv1a = nn.Conv2d(99, 64, kernel_size=3, padding='same')
+        self.dec_conv1b = nn.Conv2d(64, 32, kernel_size=3, padding='same')
+        self.dec_conv1 = nn.Conv2d(32, 3, kernel_size=3, padding='same')
+        
+        
+        # try different criterion (like MSELoss or NLLLoss or L1Loss), optimizer (like Adam or ASGD)
+        self.criterion = nn.CrossEntropyLoss()
+        self.optimizer = optim.SGD(self.parameters(), lr = 1e-1)
+        # epochs and batch size are placeholders, might need more epochs and we may need to reduce batch size
+        self.nb_epochs = 250
+        self.mini_batch_size = 100 
         
 
     def forward(self, x):
@@ -48,20 +61,72 @@ class Model ():
         # except for the last layer all convolutions are followed by leaky ReLU activation
         # function with alpha = 0.1. Other layers have linear activation. Upsampling is nearest-neighbor.
         
-        # WRITE FORWARD PASS FOR A U-NET
+        skip_connects = [x]
+                
+        x = F.leaky_relu(self.enc_conv0(x), negative_slope = 0.1)
+        x = F.leaky_relu(self.enc_conv1(x), negative_slope = 0.1)
+        x = self.pool1(x)
+        skip_connects.append(x)
+                
+        x = F.leaky_relu(self.enc_conv2(x), negative_slope = 0.1)
+        x = self.pool2(x)
+        skip_connects.append(x)
+        
+        x = F.leaky_relu(self.enc_conv3(x), negative_slope = 0.1)
+        x = self.pool3(x)
+        skip_connects.append(x)
+        
+        x = F.leaky_relu(self.enc_conv4(x), negative_slope = 0.1)
+        x = self.pool4(x)
+        skip_connects.append(x)
+        
+        x = F.leaky_relu(self.enc_conv5(x), negative_slope = 0.1)
+        x = self.pool5(x)
+        x = F.leaky_relu(self.enc_conv6(x), negative_slope = 0.1)
+        
+        # ---------------------------------------------------
+        
+        x = self.upsample5(x)
+        x = torch.cat((x, skip_connects.pop()), dim=1)
+        x = F.leaky_relu(self.dec_conv5a(x), negative_slope = 0.1)
+        x = F.leaky_relu(self.dec_conv5b(x), negative_slope = 0.1) 
+
+        x = self.upsample4(x)
+        x = torch.cat((x, skip_connects.pop()), dim=1)
+        x = F.leaky_relu(self.dec_conv4a(x), negative_slope = 0.1)
+        x = F.leaky_relu(self.dec_conv4b(x), negative_slope = 0.1)
+        
+        x = self.upsample3(x)
+        x = torch.cat((x, skip_connects.pop()), dim=1)
+        x = F.leaky_relu(self.dec_conv3a(x), negative_slope = 0.1)
+        x = F.leaky_relu(self.dec_conv3b(x), negative_slope = 0.1)
+        
+        x = self.upsample2(x)
+        x = torch.cat((x, skip_connects.pop()), dim=1)
+        x = F.leaky_relu(self.dec_conv2a(x), negative_slope = 0.1)
+        x = F.leaky_relu(self.dec_conv2b(x), negative_slope = 0.1)
+        
+        x = self.upsample1(x)
+        x = torch.cat((x, skip_connects.pop()), dim=1)
+        x = F.leaky_relu(self.dec_conv1a(x), negative_slope = 0.1)
+        x = F.leaky_relu(self.dec_conv1b(x), negative_slope = 0.1)
+
+        x = self.dec_conv1(x)
+
         return x
 
     def load_pretrained_model(self):
         """
-        This loads the parameters saved in bestmodel .pth into the model.
+        This loads the parameters saved in bestmodel.pth into the model.
 
         Returns
         -------
         None
         """
-        pass
+        best_state_dict = torch.load('bestmodel.pth')
+        self.load_state_dict(best_state_dict)
 
-    def train(self, train_input, train_target):
+    def train(self, train_input, train_target, use_augs = True):
         """
         Train the model.
 
@@ -77,6 +142,10 @@ class Model ():
         -------
         None
         """
+        # Not entirely sure if we can do this, but I don't think we can augment the input with operations that change the
+        # pixel positions without augmenting the target. But still, we can train and see which one yields better.
+        if use_augs:
+            train_input, train_target = data_augmentations(train_input, train_target)
         for e in range(self.nb_epochs):
             for b in range(0, train_input.size(0), self.mini_batch_size):
                 output = self.forward(train_input.narrow(0, b, self.mini_batch_size))
@@ -99,10 +168,9 @@ class Model ():
         -------
         denoised_signal: torch.Tensor
             Tensor of size (N1, C, H, W) containing the denoised signal.
-
         """
-
-        pass
+        return self.forward(test_input)
+        
     
 def data_augmentation(imgs_1, 
                       imgs_2,
@@ -163,16 +231,19 @@ def psnr (denoised, ground_truth):
 
     """
 
+    # it might be worthwhile to touch up this function a bit, improve its generability
+    
     mse = torch.mean((denoised-ground_truth)**2)
     psnr = -10*torch.log10(mse+10**-8)
     return psnr
 
+noisy_imgs_1, noisy_imgs_2 = torch.load('train_data.pkl ')
+noisy_imgs, clean_img = torch.load('val_data.pkl ')
+noisy_imgs_1 = noisy_imgs_1.to(torch.float)
+
 # ----------- AUGMENTATIONS TESTS: EVERYTHING SEEMS TO BE FINE ----------------------
 # ----------------------- DELETE AFTERWARDS -----------------------------------------
-
-noisy_imgs_1, noisy_imgs_2 = torch.load('../data/train_data.pkl ')
-noisy_imgs, clean_img = torch.load('../data/val_data.pkl ')
-
+"""
 new_imgs_1, new_imgs_2 = data_augmentation(noisy_imgs_1[:1,:,:,:], noisy_imgs_2[:1,:,:,:])
 
 print(new_imgs_1.shape)
@@ -182,5 +253,12 @@ for i in range(len(new_imgs_1)):
     cv2.imwrite(f'new_2_{i}.png', new_imgs_2[i].permute(1,2,0).cpu().numpy())
 cv2.imwrite(f'noisy_1.png', noisy_imgs_1[0].permute(1,2,0).cpu().numpy())
 cv2.imwrite(f'noisy_2.png', noisy_imgs_2[0].permute(1,2,0).cpu().numpy())
-
+"""
 # ----------------------------------------------------------------------------------
+
+# ---------------------- FORWARD PASS TESTS; JUST TO MAKE SURE IT'S WORKING --------
+# ----------------------------DELETE AFTERWARDS ------------------------------------
+"""
+model = Model()
+print(model.forward(noisy_imgs_1[:10]).shape)
+"""
