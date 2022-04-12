@@ -2,8 +2,6 @@ import torch
 from torch import nn
 from torchvision import transforms
 import random
-import matplotlib.pyplot as plt
-from torchvision.utils import save_image
 import cv2
 
 class Model ():
@@ -20,23 +18,37 @@ class Model ():
         # try different criterion (like MSELoss or NLLLoss or L1Loss), optimizer (like Adam or ASGD)
         self.criterion = nn.CrossEntropyLoss()
         self.optimizer = optim.SGD(model.parameters(), lr = 1e-1)
-        # epochs and batch size and placeholders, might need more epochs and we may need to reduce batch size
+        # epochs and batch size are placeholders, might need more epochs and we may need to reduce batch size
         self.nb_epochs = 250
         self.mini_batch_size = 100 
         
-        # don't use this! Instead mimic what they used in the paper, then if we have time we can work from there
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=5)
-        self.conv2 = nn.Conv2d(32, 32, kernel_size=5)
-        self.conv3 = nn.Conv2d(32, 64, kernel_size=2)
-        self.fc1 = nn.Linear(9 * 64, nb_hidden)
-        self.fc2 = nn.Linear(nb_hidden, 10)
+        # All convolutions use padding mode “same”
+        # CHECK ALL INPUT SIZES (OUTPUTS SHOULD BE CORRECT) - LOOK AT U-NET PAPER/U-NET IMPLEMENTATIONS
+        # STARTED IT, IT'S NOT FINISHED, THERE ARE STILL SEVERAL LAYERS MISSING
+        self.enc_conv0 = nn.Conv2d(3, 48, kernel_size=3, padding='same')
+        self.enc_conv1 = nn.Conv2d(48, 48, kernel_size=3, padding='same')
+        self.pool1 = nn.MaxPool2d(kernel_size=2)
+        self.enc_conv2 = nn.Conv2d(48, 48, kernel_size=3, padding='same')
+        self.pool2 = nn.MaxPool2d(kernel_size=2)
+        self.enc_conv3 = nn.Conv2d(48, 48, kernel_size=3, padding='same')
+        self.pool3 = nn.MaxPool2d(kernel_size=2)
+        self.enc_conv4 = nn.Conv2d(48, 48, kernel_size=3, padding='same')
+        self.pool4 = nn.MaxPool2d(kernel_size=2)
+        self.enc_conv5 = nn.Conv2d(48, 48, kernel_size=3, padding='same')
+        self.pool5 = nn.MaxPool2d(kernel_size=2)
+        self.enc_conv6 = nn.Conv2d(48, 48, kernel_size=3, padding='same')
+        self.upsample5 = nn.Upsample(scale_factor=2)
+        # after this we concatenate with result from pool4
+        self.dec_conv5a = nn.Conv2d(96, 96, kernel_size=3, padding='same')
+        self.dec_conv5b = nn.Conv2d(96, 96, kernel_size=3, padding='same')
+        
 
     def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), kernel_size=2))
-        x = F.relu(F.max_pool2d(self.conv2(x), kernel_size=2))
-        x = F.relu(self.conv3(x))
-        x = F.relu(self.fc1(x.view(-1, 9 * 64)))
-        x = self.fc2(x)
+        
+        # except for the last layer all convolutions are followed by leaky ReLU activation
+        # function with alpha = 0.1. Other layers have linear activation. Upsampling is nearest-neighbor.
+        
+        # WRITE FORWARD PASS FOR A U-NET
         return x
 
     def load_pretrained_model(self):
@@ -65,10 +77,9 @@ class Model ():
         -------
         None
         """
-        # still need to define the variable 'model' somewhere, not sure where
         for e in range(self.nb_epochs):
             for b in range(0, train_input.size(0), self.mini_batch_size):
-                output = model(train_input.narrow(0, b, self.mini_batch_size))
+                output = self.forward(train_input.narrow(0, b, self.mini_batch_size))
                 loss = self.criterion(output, train_target.narrow(0, b, mini_batch_size))
                 model.zero_grad()
                 loss.backward()
