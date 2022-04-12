@@ -65,7 +65,7 @@ class Model ():
         -------
         None
         """
-
+        # still need to define the variable 'model' somewhere, not sure where
         for e in range(self.nb_epochs):
             for b in range(0, train_input.size(0), self.mini_batch_size):
                 output = model(train_input.narrow(0, b, self.mini_batch_size))
@@ -93,23 +93,41 @@ class Model ():
 
         pass
     
-def data_augmentation(imgs_1, imgs_2):
-    # I think that by setting the seed we apply the same transformations to both image sets, still need to verify
+def data_augmentation(imgs_1, 
+                      imgs_2,
+                      hflip_prob = 0.5,
+                      vflip_prob = 0.5,
+                      gauss_kernel_size = 3,
+                      sol_thresh = 150,
+                      local_blur = True):
+    H, W = imgs_1.shape[-2], imgs_1.shape[-1]
     
-    H, W = imgs_1.shape[2], imgs_1.shape[3]
+    global_augs = transforms.Compose([transforms.RandomHorizontalFlip(p=hflip_prob),
+                                      transforms.RandomResizedCrop((H,W), scale = (0.5, 1.0)),
+                                      transforms.RandomVerticalFlip(p=vflip_prob),
+                                      transforms.GaussianBlur(kernel_size = gauss_kernel_size),
+                                      transforms.RandomSolarize(threshold = sol_thresh)
+                                     ])
+    if local_blur:
+        local_augs = transforms.Compose([transforms.RandomResizedCrop((H,W), scale = (0.05, 0.5)),
+                                         transforms.GaussianBlur(kernel_size = 3),
+                                        ])
+    else:
+        local_augs = transforms.Copse([transforms.RandomResizedCrop((H,W), scale = (0.05, 0.5))])
     
-    augs = transforms.Compose([transforms.RandomHorizontalFlip(p=0.5),
-                               transforms.RandomResizedCrop((H,W), scale = (0.3, 1.0)),
-                               #transforms.RandomRotation(90, fill = True),
-                               transforms.RandomVerticalFlip(p=0.5),
-                               transforms.GaussianBlur(kernel_size = 5),
-                               transforms.RandomSolarize(threshold = 130)])
-    
+    # taking inspiration from DINO, we use several local crops and 1 global crop per image
+    # Hopefully the global views will help the model to learn the general image modifications
+    # while the local views will help it to learn small-scale modifications
+    # DINO repo: https://github.com/facebookresearch/dino/blob/main/main_dino.py
     seed = random.randint(0,100)
     torch.manual_seed(seed)
-    augs_1 = augs(imgs_1)
+    augs_1 = global_augs(imgs_1)
+    for _ in range(4):
+        augs_1 = torch.cat((augs_1, local_augs(imgs_1)))
     torch.manual_seed(seed)
-    augs_2 = augs(imgs_2)
+    augs_2 = global_augs(imgs_2)
+    for _ in range(4):
+        augs_2 = torch.cat((augs_2, local_augs(imgs_2)))
     
     return augs_1, augs_2
     
@@ -138,19 +156,20 @@ def psnr (denoised, ground_truth):
     psnr = -10*torch.log10(mse+10**-8)
     return psnr
 
+# ----------- AUGMENTATIONS TESTS: EVERYTHING SEEMS TO BE FINE ----------------------
+# ----------------------- DELETE AFTERWARDS -----------------------------------------
+
 noisy_imgs_1, noisy_imgs_2 = torch.load('../data/train_data.pkl ')
 noisy_imgs, clean_img = torch.load('../data/val_data.pkl ')
 
-new_imgs_1, new_imgs_2 = data_augmentation(noisy_imgs_1[:10,:,:,:], noisy_imgs_2[:10,:,:,:])
+new_imgs_1, new_imgs_2 = data_augmentation(noisy_imgs_1[:1,:,:,:], noisy_imgs_2[:1,:,:,:])
 
-# plt.imview(noisy_imgs_1[0,:,:,:].permute(1,2,0))
-print(noisy_imgs_1[0])
-cv2.imwrite('noisy_1.png', noisy_imgs_1[0].permute(1,2,0).cpu().numpy())
-cv2.imwrite('noisy_2.png', noisy_imgs_2[0].permute(1,2,0).cpu().numpy())
-cv2.imwrite('new_1.png', new_imgs_1[0].permute(1,2,0).cpu().numpy())
-cv2.imwrite('new_2.png', new_imgs_2[0].permute(1,2,0).cpu().numpy())
+print(new_imgs_1.shape)
 
-#save_image(noisy_imgs_1[0], 'noisy_1.png')
-#save_image(noisy_imgs_2[0], 'noisy_2.png')
-#save_image(new_imgs_1[0], 'new_1.png')
-#save_image(new_imgs_2[0], 'new_2.png')
+for i in range(len(new_imgs_1)):
+    cv2.imwrite(f'new_1_{i}.png', new_imgs_1[i].permute(1,2,0).cpu().numpy())
+    cv2.imwrite(f'new_2_{i}.png', new_imgs_2[i].permute(1,2,0).cpu().numpy())
+cv2.imwrite(f'noisy_1.png', noisy_imgs_1[0].permute(1,2,0).cpu().numpy())
+cv2.imwrite(f'noisy_2.png', noisy_imgs_2[0].permute(1,2,0).cpu().numpy())
+
+# ----------------------------------------------------------------------------------
