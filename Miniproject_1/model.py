@@ -48,7 +48,7 @@ class Model(nn.Module):
         self.dec_conv1 = nn.Conv2d(32, 3, kernel_size=3, padding='same')
         
         
-        # try different criterion (like MSELoss or NLLLoss or L1Loss), optimizer (like Adam or ASGD)
+        # try different criterion (like MSELoss or L1Loss), optimizer (like Adam or ASGD)
         self.criterion = nn.CrossEntropyLoss()
         self.optimizer = optim.SGD(self.parameters(), lr = 1e-1)
         # epochs and batch size are placeholders, might need more epochs and we may need to reduce batch size
@@ -60,7 +60,6 @@ class Model(nn.Module):
         
         # except for the last layer all convolutions are followed by leaky ReLU activation
         # function with alpha = 0.1. Other layers have linear activation. Upsampling is nearest-neighbor.
-        
         skip_connects = [x]
                 
         x = F.leaky_relu(self.enc_conv0(x), negative_slope = 0.1)
