@@ -261,3 +261,17 @@ cv2.imwrite(f'noisy_2.png', noisy_imgs_2[0].permute(1,2,0).cpu().numpy())
 model = Model()
 print(model.forward(noisy_imgs_1[:10]).shape)
 """
+
+# ------------------------- OUTPUT TEST --------------------------------------
+# ----------------------- DELETE AFTERWARDS ----------------------------------
+"""
+model = Model()
+output = model.forward(noisy_imgs_1[:1])
+min_out = torch.min(output)
+max_out = torch.max(output)
+output = (output-min_out)/max_out*255
+print(output)
+cv2.imwrite(f'noisy_1.png', noisy_imgs_1[0].permute(1,2,0).cpu().numpy())
+cv2.imwrite(f'noisy_2.png', noisy_imgs_2[0].permute(1,2,0).cpu().numpy())
+cv2.imwrite(f'output.png', output[0].permute(1,2,0).cpu().detach().numpy())
+"""
