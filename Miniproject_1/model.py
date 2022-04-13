@@ -52,8 +52,8 @@ class Model(nn.Module):
         self.criterion = nn.CrossEntropyLoss()
         self.optimizer = optim.SGD(self.parameters(), lr = 1e-1)
         # epochs and batch size are placeholders, might need more epochs and we may need to reduce batch size
-        self.nb_epochs = 250
-        self.mini_batch_size = 100 
+        self.nb_epochs = 150
+        self.mini_batch_size = 25 
         
 
     def forward(self, x):
@@ -146,10 +146,12 @@ class Model(nn.Module):
         if use_augs:
             train_input, train_target = data_augmentations(train_input, train_target)
         for e in range(self.nb_epochs):
+            if (e+1) % 10 == 0:
+                print(f'EPOCH {e+1}')
             for b in range(0, train_input.size(0), self.mini_batch_size):
+                self.optimizer.zero_grad()
                 output = self.forward(train_input.narrow(0, b, self.mini_batch_size))
-                loss = self.criterion(output, train_target.narrow(0, b, mini_batch_size))
-                model.zero_grad()
+                loss = self.criterion(output, train_target.narrow(0, b, self.mini_batch_size))
                 loss.backward()
                 self.optimizer.step()
         
@@ -171,7 +173,7 @@ class Model(nn.Module):
         return self.forward(test_input)
         
     
-def data_augmentation(imgs_1, 
+def data_augmentations(imgs_1, 
                       imgs_2,
                       hflip_prob = 0.5,
                       vflip_prob = 0.5,
@@ -237,8 +239,18 @@ def psnr (denoised, ground_truth):
     return psnr
 
 noisy_imgs_1, noisy_imgs_2 = torch.load('train_data.pkl ')
-noisy_imgs, clean_img = torch.load('val_data.pkl ')
+noisy_imgs, clean_imgs = torch.load('val_data.pkl ')
 noisy_imgs_1 = noisy_imgs_1.to(torch.float)
+noisy_imgs_2 = noisy_imgs_2.to(torch.float)
+noisy_imgs = noisy_imgs.to(torch.float)
+clean_imgs = clean_imgs.to(torch.float)
+
+
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+noisy_imgs_1 = noisy_imgs_1.to(device)
+noisy_imgs_2 = noisy_imgs_2.to(device)
+noisy_imgs = noisy_imgs.to(device)
+clean_imgs = clean_imgs.to(device)
 
 # ----------- AUGMENTATIONS TESTS: EVERYTHING SEEMS TO BE FINE ----------------------
 # ----------------------- DELETE AFTERWARDS -----------------------------------------
@@ -264,14 +276,18 @@ print(model.forward(noisy_imgs_1[:10]).shape)
 
 # ------------------------- OUTPUT TEST --------------------------------------
 # ----------------------- DELETE AFTERWARDS ----------------------------------
-"""
+
 model = Model()
+model.load_pretrained_model()
 output = model.forward(noisy_imgs_1[:1])
-min_out = torch.min(output)
-max_out = torch.max(output)
-output = (output-min_out)/max_out*255
-print(output)
 cv2.imwrite(f'noisy_1.png', noisy_imgs_1[0].permute(1,2,0).cpu().numpy())
 cv2.imwrite(f'noisy_2.png', noisy_imgs_2[0].permute(1,2,0).cpu().numpy())
 cv2.imwrite(f'output.png', output[0].permute(1,2,0).cpu().detach().numpy())
+
+# ------------------- CODE TO TRAIN --------------------------
+"""
+model = Model()
+model.to(device)
+model.train(noisy_imgs_1, noisy_imgs_2, use_augs = True)
+torch.save(model.state_dict(), './test_model.pth')
 """
