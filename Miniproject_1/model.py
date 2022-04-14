@@ -47,13 +47,12 @@ class Model(nn.Module):
         self.dec_conv1b = nn.Conv2d(64, 32, kernel_size=3, padding='same')
         self.dec_conv1 = nn.Conv2d(32, 3, kernel_size=3, padding='same')
         
-        
         # try different criterion (like MSELoss or L1Loss), optimizer (like Adam or ASGD)
-        self.criterion = nn.CrossEntropyLoss()
-        self.optimizer = optim.SGD(self.parameters(), lr = 1e-1)
+        self.criterion = nn.L1Loss()
+        self.optimizer = optim.SGD(self.parameters(), lr = 1e-5)
         # epochs and batch size are placeholders, might need more epochs and we may need to reduce batch size
-        self.nb_epochs = 150
-        self.mini_batch_size = 25 
+        self.nb_epochs = 20
+        self.mini_batch_size = 200
         
 
     def forward(self, x):
@@ -61,12 +60,11 @@ class Model(nn.Module):
         # except for the last layer all convolutions are followed by leaky ReLU activation
         # function with alpha = 0.1. Other layers have linear activation. Upsampling is nearest-neighbor.
         skip_connects = [x]
-                
         x = F.leaky_relu(self.enc_conv0(x), negative_slope = 0.1)
         x = F.leaky_relu(self.enc_conv1(x), negative_slope = 0.1)
         x = self.pool1(x)
         skip_connects.append(x)
-                
+        
         x = F.leaky_relu(self.enc_conv2(x), negative_slope = 0.1)
         x = self.pool2(x)
         skip_connects.append(x)
@@ -84,7 +82,6 @@ class Model(nn.Module):
         x = F.leaky_relu(self.enc_conv6(x), negative_slope = 0.1)
         
         # ---------------------------------------------------
-        
         x = self.upsample5(x)
         x = torch.cat((x, skip_connects.pop()), dim=1)
         x = F.leaky_relu(self.dec_conv5a(x), negative_slope = 0.1)
@@ -143,17 +140,26 @@ class Model(nn.Module):
         """
         # Not entirely sure if we can do this, but I don't think we can augment the input with operations that change the
         # pixel positions without augmenting the target. But still, we can train and see which one yields better.
-        if use_augs:
-            train_input, train_target = data_augmentations(train_input, train_target)
+        print('PERFORMING AUGMENTATIONS....')
+        #if use_augs:
+        #    train_input, train_target = data_augmentations(train_input, train_target)
+        # print('AUGMENTATIONS DONE!')
+        print('TRAINING STARTING...')
         for e in range(self.nb_epochs):
-            if (e+1) % 10 == 0:
-                print(f'EPOCH {e+1}')
+            epoch_loss = 0
             for b in range(0, train_input.size(0), self.mini_batch_size):
                 self.optimizer.zero_grad()
-                output = self.forward(train_input.narrow(0, b, self.mini_batch_size))
-                loss = self.criterion(output, train_target.narrow(0, b, self.mini_batch_size))
+                train = train_input.narrow(0, b, self.mini_batch_size)
+                target = train_target.narrow(0, b, self.mini_batch_size)
+                if use_augs:
+                    train, target = data_augmentations(train, target)
+                output = self.forward(train)
+                loss = self.criterion(output, target)
+                epoch_loss += loss.item()
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.parameters(), 5)
                 self.optimizer.step()
+            print(f"Epoch {e+1}: Loss = {epoch_loss};")
         
     def predict(self, test_input):
         """
@@ -177,32 +183,32 @@ def data_augmentations(imgs_1,
                       imgs_2,
                       hflip_prob = 0.5,
                       vflip_prob = 0.5,
-                      gauss_kernel_size = 3,
-                      sol_thresh = 150,
-                      local_blur = True):
+                      gauss_kernel_size = 1,
+                      sol_thresh = 0.7,
+                      local_blur = False,
+                      n_local_crops = 4):
     H, W = imgs_1.shape[-2], imgs_1.shape[-1]
     
     global_augs = transforms.Compose([transforms.RandomHorizontalFlip(p=hflip_prob),
                                       transforms.RandomResizedCrop((H,W), scale = (0.5, 1.0)),
                                       transforms.RandomVerticalFlip(p=vflip_prob),
-                                      transforms.GaussianBlur(kernel_size = gauss_kernel_size),
-                                      transforms.RandomSolarize(threshold = sol_thresh)
+                                      # transforms.GaussianBlur(kernel_size = gauss_kernel_size),
+                                      # transforms.RandomSolarize(threshold = sol_thresh)
                                      ])
     if local_blur:
         local_augs = transforms.Compose([transforms.RandomResizedCrop((H,W), scale = (0.05, 0.5)),
-                                         transforms.GaussianBlur(kernel_size = 3),
+                                         transforms.GaussianBlur(kernel_size = gauss_kernel_size),
                                         ])
     else:
-        local_augs = transforms.Copse([transforms.RandomResizedCrop((H,W), scale = (0.05, 0.5))])
+        local_augs = transforms.Compose([transforms.RandomResizedCrop((H,W), scale = (0.05, 0.5))])
     
-    # taking inspiration from DINO, we use several local crops and 1 global crop per image
+    # We use several local crops and 1 global crop per image
     # Hopefully the global views will help the model to learn the general image modifications
     # while the local views will help it to learn small-scale modifications
-    # DINO repo: https://github.com/facebookresearch/dino/blob/main/main_dino.py
     seed = random.randint(0,100)
     torch.manual_seed(seed)
     augs_1 = global_augs(imgs_1)
-    for _ in range(4):
+    for _ in range(n_local_crops):
         augs_1 = torch.cat((augs_1, local_augs(imgs_1)))
     torch.manual_seed(seed)
     augs_2 = global_augs(imgs_2)
@@ -238,19 +244,22 @@ def psnr (denoised, ground_truth):
     psnr = -10*torch.log10(mse+10**-8)
     return psnr
 
-noisy_imgs_1, noisy_imgs_2 = torch.load('train_data.pkl ')
-noisy_imgs, clean_imgs = torch.load('val_data.pkl ')
+noisy_imgs_1, noisy_imgs_2 = torch.load('train_data.pkl')
+noisy_imgs, clean_imgs = torch.load('val_data.pkl')
 noisy_imgs_1 = noisy_imgs_1.to(torch.float)
 noisy_imgs_2 = noisy_imgs_2.to(torch.float)
 noisy_imgs = noisy_imgs.to(torch.float)
 clean_imgs = clean_imgs.to(torch.float)
+print('DATA IMPORTED')
 
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
+print('DEVICE DEFINED', device)
 noisy_imgs_1 = noisy_imgs_1.to(device)
 noisy_imgs_2 = noisy_imgs_2.to(device)
 noisy_imgs = noisy_imgs.to(device)
 clean_imgs = clean_imgs.to(device)
+print('DATA PASSED TO DEVICE')
 
 # ----------- AUGMENTATIONS TESTS: EVERYTHING SEEMS TO BE FINE ----------------------
 # ----------------------- DELETE AFTERWARDS -----------------------------------------
@@ -276,18 +285,27 @@ print(model.forward(noisy_imgs_1[:10]).shape)
 
 # ------------------------- OUTPUT TEST --------------------------------------
 # ----------------------- DELETE AFTERWARDS ----------------------------------
-
-model = Model()
-model.load_pretrained_model()
-output = model.forward(noisy_imgs_1[:1])
-cv2.imwrite(f'noisy_1.png', noisy_imgs_1[0].permute(1,2,0).cpu().numpy())
-cv2.imwrite(f'noisy_2.png', noisy_imgs_2[0].permute(1,2,0).cpu().numpy())
-cv2.imwrite(f'output.png', output[0].permute(1,2,0).cpu().detach().numpy())
-
-# ------------------- CODE TO TRAIN --------------------------
 """
 model = Model()
 model.to(device)
-model.train(noisy_imgs_1, noisy_imgs_2, use_augs = True)
-torch.save(model.state_dict(), './test_model.pth')
+model.load_pretrained_model()
+output = model.forward(noisy_imgs_1[:1])
+# min_out = torch.min(output)
+# max_out = torch.max(output)
+# output = (output-min_out)/max_out*255
+# print(output)
+cv2.imwrite(f'noisy_1.png', noisy_imgs_1[0].permute(1,2,0).cpu().numpy())
+cv2.imwrite(f'noisy_2.png', noisy_imgs_2[0].permute(1,2,0).cpu().numpy())
+cv2.imwrite(f'output.png', output[0].permute(1,2,0).cpu().detach().numpy())
 """
+# ---------------- CODE TO TRAIN --------------------
+
+model = Model()
+model.load_pretrained_model()
+model.to(device)
+model.train(noisy_imgs_1, noisy_imgs_2, use_augs = True)
+# model.to('cuda')
+torch.save(model.state_dict(), './test_model.pth')
+
+
+# --
