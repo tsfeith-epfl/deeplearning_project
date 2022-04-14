@@ -122,7 +122,7 @@ class Model(nn.Module):
         -------
         None
         """
-        best_state_dict = torch.load('bestmodel.pth')
+        best_state_dict = torch.load('bestmodel.pth', map_location='cpu')
         self.load_state_dict(best_state_dict)
 
     def train(self, train_input, train_target, use_augs = True):
