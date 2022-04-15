@@ -130,3 +130,4 @@ dmypy.json
 
 # exclude data files
 */*.pkl
+*.pth

@@ -51,8 +51,8 @@ class Model(nn.Module):
         self.criterion = nn.L1Loss()
         self.optimizer = optim.SGD(self.parameters(), lr = 1e-5)
         # epochs and batch size are placeholders, might need more epochs and we may need to reduce batch size
-        self.nb_epochs = 20
-        self.mini_batch_size = 200
+        self.nb_epochs = 100
+        self.mini_batch_size = 500
         
 
     def forward(self, x):
@@ -157,7 +157,7 @@ class Model(nn.Module):
                 loss = self.criterion(output, target)
                 epoch_loss += loss.item()
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.parameters(), 5)
+                # torch.nn.utils.clip_grad_norm_(self.parameters(), 5)
                 self.optimizer.step()
             print(f"Epoch {e+1}: Loss = {epoch_loss};")
         
@@ -285,7 +285,7 @@ print(model.forward(noisy_imgs_1[:10]).shape)
 
 # ------------------------- OUTPUT TEST --------------------------------------
 # ----------------------- DELETE AFTERWARDS ----------------------------------
-"""
+
 model = Model()
 model.to(device)
 model.load_pretrained_model()
@@ -297,15 +297,15 @@ output = model.forward(noisy_imgs_1[:1])
 cv2.imwrite(f'noisy_1.png', noisy_imgs_1[0].permute(1,2,0).cpu().numpy())
 cv2.imwrite(f'noisy_2.png', noisy_imgs_2[0].permute(1,2,0).cpu().numpy())
 cv2.imwrite(f'output.png', output[0].permute(1,2,0).cpu().detach().numpy())
-"""
-# ---------------- CODE TO TRAIN --------------------
 
+# ---------------- CODE TO TRAIN --------------------
+"""
 model = Model()
 model.load_pretrained_model()
 model.to(device)
-model.train(noisy_imgs_1, noisy_imgs_2, use_augs = True)
+model.train(noisy_imgs_1, noisy_imgs_2, use_augs = False)
 # model.to('cuda')
 torch.save(model.state_dict(), './test_model.pth')
-
+"""
 
 # --
