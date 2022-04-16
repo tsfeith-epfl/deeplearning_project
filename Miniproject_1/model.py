@@ -52,7 +52,19 @@ class Model(nn.Module):
         self.optimizer = optim.SGD(self.parameters(), lr = 1e-5)
         # epochs and batch size are placeholders, might need more epochs and we may need to reduce batch size
         self.nb_epochs = 100
-        self.mini_batch_size = 500
+        self.mini_batch_size = 50
+        
+        # Initialize weights
+        self._init_weights()
+
+
+    def _init_weights(self):
+        """Initializes weights using He et al. (2015)."""
+
+        for m in self.modules():
+            if isinstance(m, nn.ConvTranspose2d) or isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight.data)
+                m.bias.data.zero_()
         
 
     def forward(self, x):
@@ -107,7 +119,7 @@ class Model(nn.Module):
         x = F.leaky_relu(self.dec_conv1a(x), negative_slope = 0.1)
         x = F.leaky_relu(self.dec_conv1b(x), negative_slope = 0.1)
 
-        x = self.dec_conv1(x)
+        x = F.relu(self.dec_conv1(x))
 
         return x
 
@@ -122,7 +134,13 @@ class Model(nn.Module):
         best_state_dict = torch.load('bestmodel.pth', map_location='cpu')
         self.load_state_dict(best_state_dict)
 
-    def train(self, train_input, train_target, use_augs = True):
+    def train(self,
+              train_input,
+              train_target,
+              use_augs = True,
+              gauss_kernel_size = 1,
+              local_blur = False,
+              n_local_crops = 4):
         """
         Train the model.
 
@@ -140,11 +158,7 @@ class Model(nn.Module):
         """
         # Not entirely sure if we can do this, but I don't think we can augment the input with operations that change the
         # pixel positions without augmenting the target. But still, we can train and see which one yields better.
-        print('PERFORMING AUGMENTATIONS....')
-        #if use_augs:
-        #    train_input, train_target = data_augmentations(train_input, train_target)
-        # print('AUGMENTATIONS DONE!')
-        print('TRAINING STARTING...')
+        print('\nTRAINING STARTING...')
         for e in range(self.nb_epochs):
             epoch_loss = 0
             for b in range(0, train_input.size(0), self.mini_batch_size):
@@ -157,7 +171,7 @@ class Model(nn.Module):
                 loss = self.criterion(output, target)
                 epoch_loss += loss.item()
                 loss.backward()
-                # torch.nn.utils.clip_grad_norm_(self.parameters(), 5)
+                torch.nn.utils.clip_grad_norm_(self.parameters(), 10)
                 self.optimizer.step()
             print(f"Epoch {e+1}: Loss = {epoch_loss};")
         
@@ -180,25 +194,23 @@ class Model(nn.Module):
         
     
 def data_augmentations(imgs_1, 
-                      imgs_2,
-                      hflip_prob = 0.5,
-                      vflip_prob = 0.5,
-                      gauss_kernel_size = 1,
-                      sol_thresh = 0.7,
-                      local_blur = False,
-                      n_local_crops = 4):
+                       imgs_2,
+                       hflip_prob = 0.5,
+                       vflip_prob = 0.5,
+                       gauss_kernel_size = 1,
+                       local_blur = False,
+                       n_local_crops = 4):
     H, W = imgs_1.shape[-2], imgs_1.shape[-1]
     
     global_augs = transforms.Compose([transforms.RandomHorizontalFlip(p=hflip_prob),
                                       transforms.RandomResizedCrop((H,W), scale = (0.5, 1.0)),
                                       transforms.RandomVerticalFlip(p=vflip_prob),
-                                      # transforms.GaussianBlur(kernel_size = gauss_kernel_size),
-                                      # transforms.RandomSolarize(threshold = sol_thresh)
-                                     ])
+                                      transforms.GaussianBlur(kernel_size = gauss_kernel_size),
+                                      ])
     if local_blur:
         local_augs = transforms.Compose([transforms.RandomResizedCrop((H,W), scale = (0.05, 0.5)),
                                          transforms.GaussianBlur(kernel_size = gauss_kernel_size),
-                                        ])
+                                         ])
     else:
         local_augs = transforms.Compose([transforms.RandomResizedCrop((H,W), scale = (0.05, 0.5))])
     
@@ -244,68 +256,70 @@ def psnr (denoised, ground_truth):
     psnr = -10*torch.log10(mse+10**-8)
     return psnr
 
-noisy_imgs_1, noisy_imgs_2 = torch.load('train_data.pkl')
-noisy_imgs, clean_imgs = torch.load('val_data.pkl')
-noisy_imgs_1 = noisy_imgs_1.to(torch.float)
-noisy_imgs_2 = noisy_imgs_2.to(torch.float)
-noisy_imgs = noisy_imgs.to(torch.float)
-clean_imgs = clean_imgs.to(torch.float)
-print('DATA IMPORTED')
+if __name__ == '__main__':
+
+    noisy_imgs_1, noisy_imgs_2 = torch.load('train_data.pkl')
+    noisy_imgs, clean_imgs = torch.load('val_data.pkl')
+    noisy_imgs_1 = noisy_imgs_1.to(torch.float)
+    noisy_imgs_2 = noisy_imgs_2.to(torch.float)
+    noisy_imgs = noisy_imgs.to(torch.float)
+    clean_imgs = clean_imgs.to(torch.float)
+    print('DATA IMPORTED')
 
 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-print('DEVICE DEFINED', device)
-noisy_imgs_1 = noisy_imgs_1.to(device)
-noisy_imgs_2 = noisy_imgs_2.to(device)
-noisy_imgs = noisy_imgs.to(device)
-clean_imgs = clean_imgs.to(device)
-print('DATA PASSED TO DEVICE')
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print('DEVICE DEFINED', device)
+    noisy_imgs_1 = noisy_imgs_1.to(device)
+    noisy_imgs_2 = noisy_imgs_2.to(device)
+    noisy_imgs = noisy_imgs.to(device)
+    clean_imgs = clean_imgs.to(device)
+    print('DATA PASSED TO DEVICE')
 
-# ----------- AUGMENTATIONS TESTS: EVERYTHING SEEMS TO BE FINE ----------------------
-# ----------------------- DELETE AFTERWARDS -----------------------------------------
-"""
-new_imgs_1, new_imgs_2 = data_augmentation(noisy_imgs_1[:1,:,:,:], noisy_imgs_2[:1,:,:,:])
+    # ----------- AUGMENTATIONS TESTS: EVERYTHING SEEMS TO BE FINE ----------------------
+    # ----------------------- DELETE AFTERWARDS -----------------------------------------
+    """
+    new_imgs_1, new_imgs_2 = data_augmentation(noisy_imgs_1[:1,:,:,:], noisy_imgs_2[:1,:,:,:])
 
-print(new_imgs_1.shape)
+    print(new_imgs_1.shape)
 
-for i in range(len(new_imgs_1)):
-    cv2.imwrite(f'new_1_{i}.png', new_imgs_1[i].permute(1,2,0).cpu().numpy())
-    cv2.imwrite(f'new_2_{i}.png', new_imgs_2[i].permute(1,2,0).cpu().numpy())
-cv2.imwrite(f'noisy_1.png', noisy_imgs_1[0].permute(1,2,0).cpu().numpy())
-cv2.imwrite(f'noisy_2.png', noisy_imgs_2[0].permute(1,2,0).cpu().numpy())
-"""
-# ----------------------------------------------------------------------------------
+    for i in range(len(new_imgs_1)):
+        cv2.imwrite(f'new_1_{i}.png', new_imgs_1[i].permute(1,2,0).cpu().numpy())
+        cv2.imwrite(f'new_2_{i}.png', new_imgs_2[i].permute(1,2,0).cpu().numpy())
+    cv2.imwrite(f'noisy_1.png', noisy_imgs_1[0].permute(1,2,0).cpu().numpy())
+    cv2.imwrite(f'noisy_2.png', noisy_imgs_2[0].permute(1,2,0).cpu().numpy())
+    """
+    # ----------------------------------------------------------------------------------
 
-# ---------------------- FORWARD PASS TESTS; JUST TO MAKE SURE IT'S WORKING --------
-# ----------------------------DELETE AFTERWARDS ------------------------------------
-"""
-model = Model()
-print(model.forward(noisy_imgs_1[:10]).shape)
-"""
+    # ---------------------- FORWARD PASS TESTS; JUST TO MAKE SURE IT'S WORKING --------
+    # ----------------------------DELETE AFTERWARDS ------------------------------------
+    """
+    model = Model()
+    print(model.forward(noisy_imgs_1[:10]).shape)
+    """
 
-# ------------------------- OUTPUT TEST --------------------------------------
-# ----------------------- DELETE AFTERWARDS ----------------------------------
+    # ------------------------- OUTPUT TEST --------------------------------------
+    # ----------------------- DELETE AFTERWARDS ----------------------------------
 
-model = Model()
-model.to(device)
-model.load_pretrained_model()
-output = model.forward(noisy_imgs_1[:1])
-# min_out = torch.min(output)
-# max_out = torch.max(output)
-# output = (output-min_out)/max_out*255
-# print(output)
-cv2.imwrite(f'noisy_1.png', noisy_imgs_1[0].permute(1,2,0).cpu().numpy())
-cv2.imwrite(f'noisy_2.png', noisy_imgs_2[0].permute(1,2,0).cpu().numpy())
-cv2.imwrite(f'output.png', output[0].permute(1,2,0).cpu().detach().numpy())
+    model = Model()
+    model.to(device)
+    model.load_pretrained_model()
+    output = model.forward(noisy_imgs_1[:1])
+    # min_out = torch.min(output)
+    # max_out = torch.max(output)
+    # output = (output-min_out)/max_out*255
+    # print(output)
+    cv2.imwrite(f'noisy_1.png', noisy_imgs_1[0].permute(1,2,0).cpu().numpy())
+    cv2.imwrite(f'noisy_2.png', noisy_imgs_2[0].permute(1,2,0).cpu().numpy())
+    cv2.imwrite(f'output.png', output[0].permute(1,2,0).cpu().detach().numpy())
 
-# ---------------- CODE TO TRAIN --------------------
-"""
-model = Model()
-model.load_pretrained_model()
-model.to(device)
-model.train(noisy_imgs_1, noisy_imgs_2, use_augs = False)
-# model.to('cuda')
-torch.save(model.state_dict(), './test_model.pth')
-"""
+    # ---------------- CODE TO TRAIN --------------------
+    """
+    model = Model()
+    model.load_pretrained_model()
+    model.to(device)
+    model.train(noisy_imgs_1, noisy_imgs_2, use_augs = False)
+    # model.to('cuda')
+    torch.save(model.state_dict(), './test_model.pth')
+    """
 
-# --
+    # --
