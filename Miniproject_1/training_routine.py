@@ -1,11 +1,11 @@
-from model import Model
+from model import Model as Model_TConv
+from model_upsample import Model as Model_Upsample
 from model import psnr
 import os
 import torch
 from torch import nn
 from torch import optim
 import cv2
-
 
 noisy_imgs_1, noisy_imgs_2 = torch.load('train_data.pkl')
 noisy_imgs, clean_imgs = torch.load('val_data.pkl')
@@ -27,73 +27,61 @@ print('DATA PASSED TO DEVICE')
 
 experiment_name = ''
 
+models = [Model_TConv, Model_Upsample]
+models_str = ['TConv', 'Upsample']
+
 criterions = [nn.L1Loss, nn.MSELoss]
 criterions_str = ['L1', 'MSE']
 
+sharp_str = ['no_sharp', 'yes_sharp']
+crop_str = ['no_crops', 'yes_crops']
+
 optimizers = [optim.SGD, optim.Adam]
 optimizers_str = ['SGD', 'Adam']
+lr_optim = [1e-5, 1e-4]
 
-augs_str = ['no_augs', 'augs']
-local_blur_str = ['no_local_blur', 'local_blur']
+lr_crit = [0.5, 0.05]
 
 
-for i in range(len(criterions)):
-    for j in range(len(optimizers)):
-        for use_augs in [0, 1]:
-            if use_augs:
-                for gauss_kernel_size in [1,3]:
-                    for local_blur in [0, 1]:
-                        experiment_name = f"{criterions_str[i]}_{optimizers_str[j]}_{augs_str[use_augs]}_gkernel{gauss_kernel_size}_{local_blur_str[local_blur]}"
-                        if os.path.exists(f"./outputs/{experiment_name}"):
+for i in range(len(models)):
+    for j in range(len(criterions)):
+        for k in range(len(optimizers)):
+            for sharpen in [0, 1]:
+                for crop in [0, 1]:
+                    if crop:
+                        experiment_name = f"{models_str[i]}/{criterions_str[j]}_{optimizers_str[k]}_{sharp_str[sharpen]}_{crop_str[crop]}_20epochs"
+                        if os.path.exists(f"./outputs_{experiment_name}"):
                             continue
-                        print(f"Running {experiment_name}\n")
-                        model = Model()
-                        model.nb_epochs = 25
+                        print(f"\nRunning {experiment_name}...")
+                        model = models[i]()
+                        model.nb_epochs = 20
                         model.to(device)
-                        model.criterion = criterions[i]()
-                        model.optimizer = optimizers[j](model.parameters(), lr = 1e-4)
+                        model.criterion = criterions[j]()
+                        model.optimizer = optimizers[k](model.parameters(), lr = lr_optim[k] * lr_crit[j])
                         model.train(noisy_imgs_1,
                                     noisy_imgs_2,
-                                    use_augs = use_augs,
-                                    gauss_kernel_size = gauss_kernel_size,
-                                    local_blur = local_blur)
+                                    use_SSIM = criterions_str[j] == 'SSIM',
+                                    sharpen = sharpen,
+                                    use_crops = crop)
                         
-                        os.makedirs(f"./outputs/{experiment_name}")
-                        torch.save(model.state_dict(), f'./outputs/{experiment_name}/bestmodel.pth')
+                        os.makedirs(f"./outputs_{experiment_name}")
+                        torch.save(model.state_dict(), f"./outputs_{experiment_name}/bestmodel.pth")
+                    else:
+                        for epochs in [20, 60]:
+                            experiment_name = f"{models_str[i]}/{criterions_str[j]}_{optimizers_str[k]}_{sharp_str[sharpen]}_{crop_str[crop]}_{epochs}epochs"
+                            if os.path.exists(f"./outputs_{experiment_name}"):
+                                continue
+                            print(f"\nRunning {experiment_name}...")
+                            model = models[i]()
+                            model.nb_epochs = epochs
+                            model.to(device)
+                            model.criterion = criterions[j]()
+                            model.optimizer = optimizers[k](model.parameters(), lr = lr_optim[k] * lr_crit[j])
+                            model.train(noisy_imgs_1,
+                                        noisy_imgs_2,
+                                        use_SSIM = criterions_str[j] == 'SSIM',
+                                        sharpen = sharpen,
+                                        use_crops = crop)
 
-                        pred = model.predict(noisy_imgs)
-                        psnr_val = psnr(pred/255, clean_imgs/255)
-                        val_loss = model.criterion(pred, clean_imgs)
-                        f = open(f"./outputs/{experiment_name}/results.txt", "w")
-                        f.write(f"PSNR: {psnr_val}\nVal loss: {val_loss}")
-                        f.close()
-                        output = model.forward(noisy_imgs_1[:1])
-                        cv2.imwrite(f'./outputs/{experiment_name}/noisy_1.png', noisy_imgs_1[0].permute(1,2,0).cpu().numpy())
-                        cv2.imwrite(f'./outputs/{experiment_name}/noisy_2.png', noisy_imgs_2[0].permute(1,2,0).cpu().numpy())
-                        cv2.imwrite(f'./outputs/{experiment_name}/output.png', output[0].permute(1,2,0).cpu().detach().numpy())
-            else:
-                for epoch in [25, 125]:
-                    experiment_name = f"{criterions_str[i]}_{optimizers_str[j]}_{augs_str[use_augs]}_{epoch}epochs"
-                    if os.path.exists(f"./outputs/{experiment_name}"):
-                        continue
-                    print(f"Running {experiment_name}\n")
-                    model = Model()
-                    model.nb_epochs = epoch
-                    model.to(device)
-                    model.criterion = criterions[i]()
-                    model.optimizer = optimizers[j](model.parameters(), lr = 1e-4)
-                    model.train(noisy_imgs_1, noisy_imgs_2, use_augs = False)
-
-                    # Create a new directory because it does not exist 
-                    os.makedirs(f"./outputs/{experiment_name}")
-                    torch.save(model.state_dict(), f'./outputs/{experiment_name}/bestmodel.pth')
-                    pred = model.predict(noisy_imgs)
-                    psnr_val = psnr(pred/255, clean_imgs/255)
-                    val_loss = model.criterion(pred, clean_imgs)
-                    f = open(f"./outputs/{experiment_name}/results.txt", "w")
-                    f.write(f"PSNR: {psnr_val}\nVal loss: {val_loss}")
-                    f.close()
-                    output = model.forward(noisy_imgs_1[:1])
-                    cv2.imwrite(f'./outputs/{experiment_name}/noisy_1.png', noisy_imgs_1[0].permute(1,2,0).cpu().numpy())
-                    cv2.imwrite(f'./outputs/{experiment_name}/noisy_2.png', noisy_imgs_2[0].permute(1,2,0).cpu().numpy())
-                    cv2.imwrite(f'./outputs/{experiment_name}/output.png', output[0].permute(1,2,0).cpu().detach().numpy())
+                            os.makedirs(f"./outputs_{experiment_name}")
+                            torch.save(model.state_dict(), f"./outputs_{experiment_name}/bestmodel.pth")

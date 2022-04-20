@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-import torchvision.transforms.functional as F1
+import torchvision.transforms.functional as F1 
 from torch.optim.lr_scheduler import StepLR
 from torch import optim
 from torchvision import transforms
@@ -34,34 +34,29 @@ class Model(nn.Module):
         self.enc_conv5 = nn.Conv2d(48, 48, kernel_size=3, padding='same')
         self.pool5 = nn.MaxPool2d(kernel_size=2)
         self.enc_conv6 = nn.Conv2d(48, 48, kernel_size=3, padding='same')
-        # self.upsample5 = nn.Upsample(scale_factor=2)
-        self.upsample5 = nn.ConvTranspose2d(48, 48, kernel_size=2, stride=2, padding=0)
+        self.upsample5 = nn.Upsample(scale_factor=2)
         self.dec_conv5a = nn.Conv2d(96, 96, kernel_size=3, padding='same')
         self.dec_conv5b = nn.Conv2d(96, 96, kernel_size=3, padding='same')
-        # self.upsample4 = nn.Upsample(scale_factor=2)
-        self.upsample4 = nn.ConvTranspose2d(96, 96, kernel_size=2, stride=2, padding=0)
+        self.upsample4 = nn.Upsample(scale_factor=2)
         self.dec_conv4a = nn.Conv2d(144, 96, kernel_size=3, padding='same')
         self.dec_conv4b = nn.Conv2d(96, 96, kernel_size=3, padding='same')
-        # self.upsample3 = nn.Upsample(scale_factor=2)
-        self.upsample3 = nn.ConvTranspose2d(96, 96, kernel_size=2, stride=2, padding=0)
+        self.upsample3 = nn.Upsample(scale_factor=2)
         self.dec_conv3a = nn.Conv2d(144, 96, kernel_size=3, padding='same')
         self.dec_conv3b = nn.Conv2d(96, 96, kernel_size=3, padding='same')
-        # self.upsample2 = nn.Upsample(scale_factor=2)
-        self.upsample2 = nn.ConvTranspose2d(96, 96, kernel_size=2, stride=2, padding=0)
+        self.upsample2 = nn.Upsample(scale_factor=2)
         self.dec_conv2a = nn.Conv2d(144, 96, kernel_size=3, padding='same')
         self.dec_conv2b = nn.Conv2d(96, 96, kernel_size=3, padding='same')
-        # self.upsample1 = nn.Upsample(scale_factor=2)
-        self.upsample1 = nn.ConvTranspose2d(96, 96, kernel_size=2, stride=2, padding=0)
+        self.upsample1 = nn.Upsample(scale_factor=2)
         self.dec_conv1a = nn.Conv2d(99, 64, kernel_size=3, padding='same')
         self.dec_conv1b = nn.Conv2d(64, 32, kernel_size=3, padding='same')
-        self.dec_conv1 = nn.Conv2d(32, 3, kernel_size=3, padding='same')
+        self.dec_conv1 = nn.Conv2d(32, 3, kernel_size=3, padding='same')        
         
         # try different criterion (like MSELoss or L1Loss), optimizer (like Adam or ASGD)
         self.criterion = nn.L1Loss()
         self.optimizer = optim.SGD(self.parameters(), lr = 1e-5)
         # epochs and batch size are placeholders, might need more epochs and we may need to reduce batch size
         self.nb_epochs = 100
-        self.mini_batch_size = 20
+        self.mini_batch_size = 200
         
         # Initialize weights
         self._init_weights()
@@ -74,7 +69,7 @@ class Model(nn.Module):
             if isinstance(m, nn.ConvTranspose2d) or isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight.data)
                 m.bias.data.zero_()
-                    
+
     def forward(self, x, sharpen = True):
         
         # except for the last layer all convolutions are followed by leaky ReLU activation
@@ -131,7 +126,7 @@ class Model(nn.Module):
         
         if sharpen:
             x = x * 2 - F1.gaussian_blur(x, 7)
-
+            
         return x
 
     def load_pretrained_model(self):
@@ -169,7 +164,7 @@ class Model(nn.Module):
         """
         n_samples = len(train_input)*(1 + n_local_crops) if use_crops else len(train_input) 
         print('\nTRAINING STARTING...')
-        scheduler = StepLR(self.optimizer, step_size = self.nb_epochs // 2)
+        scheduler = StepLR(self.optimizer, step_size = self.nb_epochs // 2)        
         for e in range(self.nb_epochs):
             epoch_loss = 0
             for b in range(0, train_input.size(0), self.mini_batch_size):
@@ -248,7 +243,8 @@ def data_augmentations(imgs_1,
         augs_2 = torch.cat((augs_2, local_augs(imgs_2)))
     
     return augs_1, augs_2
-    
+
+
 def psnr (denoised, ground_truth):
     """
     Compute the peak signal to noise ratio.
