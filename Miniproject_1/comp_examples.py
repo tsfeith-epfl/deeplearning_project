@@ -18,8 +18,8 @@ if __name__ == '__main__':
     clean_imgs = clean_imgs.to(torch.float)
     
     for index, file in enumerate(glob.glob("outputs*/*/*.pth")):
-        model_type = file.split("/")[0][8:]
-        params = file.split("/")[1].split("_")
+        model_type = file.split("\\")[0][8:]
+        params = file.split("\\")[1].split("_")
         out_dir = file[:-13]
         
         criterion = params[0]
@@ -47,9 +47,9 @@ if __name__ == '__main__':
         f = open(f"./{out_dir}results.txt", "w")
         f.write(f"PSNR: {psnr_val}\nVal loss: {val_loss}")
         f.close()
-        output = model.forward(noisy_imgs_1[:1])
-        cv2.imwrite(f'./{out_dir}noisy_1.png', noisy_imgs_1[0].permute(1,2,0).numpy())
-        cv2.imwrite(f'./{out_dir}noisy_2.png', noisy_imgs_2[0].permute(1,2,0).numpy())
+        output = model.forward(noisy_imgs[3:4])
+        cv2.imwrite(f'./{out_dir}noisy_1.png', noisy_imgs[3].permute(1,2,0).numpy())
+        cv2.imwrite(f'./{out_dir}noisy_2.png', clean_imgs[3].permute(1,2,0).numpy())
         cv2.imwrite(f'./{out_dir}output.png', output[0].permute(1,2,0).detach().numpy())
         
         print(f"{file}: {psnr_val}, {val_loss}")

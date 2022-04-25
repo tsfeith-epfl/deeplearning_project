@@ -52,10 +52,9 @@ class Model(nn.Module):
         self.dec_conv1 = nn.Conv2d(32, 3, kernel_size=3, padding='same')        
         
         # try different criterion (like MSELoss or L1Loss), optimizer (like Adam or ASGD)
-        self.criterion = nn.L1Loss()
-        self.optimizer = optim.SGD(self.parameters(), lr = 1e-5)
-        # epochs and batch size are placeholders, might need more epochs and we may need to reduce batch size
-        self.nb_epochs = 100
+        self.criterion = nn.MSELoss()
+        self.optimizer = optim.Adam(self.parameters(), lr = 5e-5)
+
         self.mini_batch_size = 200
         
         # Initialize weights
@@ -70,7 +69,7 @@ class Model(nn.Module):
                 nn.init.kaiming_normal_(m.weight.data)
                 m.bias.data.zero_()
 
-    def forward(self, x, sharpen = True):
+    def forward(self, x, sharpen = True, sharpen_factor = 1.85):
         
         # except for the last layer all convolutions are followed by leaky ReLU activation
         # function with alpha = 0.1. Other layers have linear activation. Upsampling is nearest-neighbor.
@@ -125,7 +124,7 @@ class Model(nn.Module):
         x = F.relu(self.dec_conv1(x))
         
         if sharpen:
-            x = x * 2 - F1.gaussian_blur(x, 7)
+            x = F.relu(x + sharp_factor*(x - F1.gaussian_blur(x, 3)))
             
         return x
 
@@ -143,9 +142,11 @@ class Model(nn.Module):
     def train(self,
               train_input,
               train_target,
+              epochs,
               n_local_crops = 2,
               use_SSIM = False,
               sharpen = True,
+              sharpen_factor = 1.85,
               use_crops = True):
         """
         Train the model.
@@ -164,24 +165,23 @@ class Model(nn.Module):
         """
         n_samples = len(train_input)*(1 + n_local_crops) if use_crops else len(train_input) 
         print('\nTRAINING STARTING...')
-        scheduler = StepLR(self.optimizer, step_size = self.nb_epochs // 2)        
-        for e in range(self.nb_epochs):
+        scheduler = StepLR(self.optimizer, step_size = epochs // 2)        
+        for e in range(epochs):
             epoch_loss = 0
             for b in range(0, train_input.size(0), self.mini_batch_size):
                 self.optimizer.zero_grad()
                 train = train_input.narrow(0, b, self.mini_batch_size)
                 target = train_target.narrow(0, b, self.mini_batch_size)
-                train, target = data_augmentations(train, target, use_crops = use_crops)
-                output = self.forward(train, sharpen)
+                train, target = data_augmentations(train, target, use_crops = use_crops, n_local_crops = n_local_crops)
+                output = self.forward(train, sharpen, sharpen_factor)
                 loss = self.criterion(output, target)
                 epoch_loss += loss.item()/n_samples
                 loss.backward()
-                # torch.nn.utils.clip_grad_norm_(self.parameters(), 10)
                 self.optimizer.step()
             scheduler.step()
             print(f"Epoch {e+1}: Loss = {epoch_loss};")
         
-    def predict(self, test_input, sharpen = True):
+    def predict(self, test_input, sharpen = True, sharpen_factor = 1.85):
         """
         Perform inference.
 
@@ -196,7 +196,7 @@ class Model(nn.Module):
         denoised_signal: torch.Tensor
             Tensor of size (N1, C, H, W) containing the denoised signal.
         """
-        return self.forward(test_input, sharpen)
+        return self.forward(test_input, sharpen, sharpen_factor)
         
     
 def data_augmentations(imgs_1, 
