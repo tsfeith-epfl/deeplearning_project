@@ -40,7 +40,7 @@ optimizers = [optim.SGD, optim.Adam]
 optimizers_str = ['SGD', 'Adam']
 lr_optim = [1e-5, 1e-4]
 
-lr_crit = [0.5, 0.05]
+lr_crit = [1, 0.1]
 
 
 for i in range(len(models)):
@@ -54,13 +54,12 @@ for i in range(len(models)):
                             continue
                         print(f"\nRunning {experiment_name}...")
                         model = models[i]()
-                        model.nb_epochs = 20
                         model.to(device)
                         model.criterion = criterions[j]()
                         model.optimizer = optimizers[k](model.parameters(), lr = lr_optim[k] * lr_crit[j])
                         model.train(noisy_imgs_1,
                                     noisy_imgs_2,
-                                    use_SSIM = criterions_str[j] == 'SSIM',
+                                    20,
                                     sharpen = sharpen,
                                     use_crops = crop)
                         
@@ -73,13 +72,12 @@ for i in range(len(models)):
                                 continue
                             print(f"\nRunning {experiment_name}...")
                             model = models[i]()
-                            model.nb_epochs = epochs
                             model.to(device)
                             model.criterion = criterions[j]()
                             model.optimizer = optimizers[k](model.parameters(), lr = lr_optim[k] * lr_crit[j])
                             model.train(noisy_imgs_1,
                                         noisy_imgs_2,
-                                        use_SSIM = criterions_str[j] == 'SSIM',
+                                        epochs,
                                         sharpen = sharpen,
                                         use_crops = crop)
 

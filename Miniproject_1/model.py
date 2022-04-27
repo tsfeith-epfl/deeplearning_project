@@ -67,7 +67,7 @@ class Model(nn.Module):
                 nn.init.kaiming_normal_(module.weight.data)
                 module.bias.data.zero_()
                     
-    def forward(self, x, sharpen = True, sharp_factor = 1.85):
+    def forward(self, x, sharpen = True, sharp_factor = 1.):
         
         skip_connects = [x]
         x = F.leaky_relu(self.enc_conv0(x), negative_slope = 0.1)
@@ -140,9 +140,8 @@ class Model(nn.Module):
               train_target,
               epochs,
               n_local_crops = 2,
-              use_SSIM = False,
               sharpen = True,
-              sharpen_factor = 1.85,
+              sharpen_factor = 1.,
               use_crops = True):
         """
         Train the model.
@@ -177,7 +176,7 @@ class Model(nn.Module):
             scheduler.step()
             print(f"Epoch {e+1}: Loss = {epoch_loss};")
         
-    def predict(self, test_input, sharpen = True, sharpen_factor = 1.85):
+    def predict(self, test_input, sharpen = True, sharpen_factor = 1.):
         """
         Perform inference.
 
@@ -312,10 +311,6 @@ if __name__ == '__main__':
     model.to(device)
     model.load_pretrained_model()
     output = model.forward(noisy_imgs_1[:1])
-    # min_out = torch.min(output)
-    # max_out = torch.max(output)
-    # output = (output-min_out)/max_out*255
-    # print(output)
     cv2.imwrite(f'noisy_1.png', noisy_imgs_1[0].permute(1,2,0).cpu().numpy())
     cv2.imwrite(f'noisy_2.png', noisy_imgs_2[0].permute(1,2,0).cpu().numpy())
     cv2.imwrite(f'output.png', output[0].permute(1,2,0).cpu().detach().numpy())

@@ -55,7 +55,7 @@ class Model(nn.Module):
         self.criterion = nn.MSELoss()
         self.optimizer = optim.Adam(self.parameters(), lr = 5e-5)
 
-        self.mini_batch_size = 200
+        self.mini_batch_size = 10
         
         # Initialize weights
         self._init_weights()
@@ -69,7 +69,7 @@ class Model(nn.Module):
                 nn.init.kaiming_normal_(m.weight.data)
                 m.bias.data.zero_()
 
-    def forward(self, x, sharpen = True, sharpen_factor = 1.85):
+    def forward(self, x, sharpen = True, sharp_factor = 1.):
         
         # except for the last layer all convolutions are followed by leaky ReLU activation
         # function with alpha = 0.1. Other layers have linear activation. Upsampling is nearest-neighbor.
@@ -144,9 +144,8 @@ class Model(nn.Module):
               train_target,
               epochs,
               n_local_crops = 2,
-              use_SSIM = False,
               sharpen = True,
-              sharpen_factor = 1.85,
+              sharpen_factor = 1.,
               use_crops = True):
         """
         Train the model.
@@ -181,7 +180,7 @@ class Model(nn.Module):
             scheduler.step()
             print(f"Epoch {e+1}: Loss = {epoch_loss};")
         
-    def predict(self, test_input, sharpen = True, sharpen_factor = 1.85):
+    def predict(self, test_input, sharpen = True, sharpen_factor = 1.):
         """
         Perform inference.
 
@@ -320,10 +319,6 @@ if __name__ == '__main__':
     model.to(device)
     model.load_pretrained_model()
     output = model.forward(noisy_imgs_1[:1])
-    # min_out = torch.min(output)
-    # max_out = torch.max(output)
-    # output = (output-min_out)/max_out*255
-    # print(output)
     cv2.imwrite(f'noisy_1.png', noisy_imgs_1[0].permute(1,2,0).cpu().numpy())
     cv2.imwrite(f'noisy_2.png', noisy_imgs_2[0].permute(1,2,0).cpu().numpy())
     cv2.imwrite(f'output.png', output[0].permute(1,2,0).cpu().detach().numpy())
