@@ -54,7 +54,7 @@ class Model(nn.Module):
         self.criterion = nn.MSELoss()
         self.optimizer = optim.Adam(self.parameters(), lr = 5e-5)
 
-        self.mini_batch_size = 10
+        self.mini_batch_size = 625
         
         # Initialize weights
         self._init_weights()
@@ -142,7 +142,9 @@ class Model(nn.Module):
               n_local_crops = 2,
               sharpen = True,
               sharpen_factor = 1.,
-              use_crops = True):
+              use_crops = True,
+              test_input = None,
+              test_target = None):
         """
         Train the model.
 
@@ -158,9 +160,10 @@ class Model(nn.Module):
         -------
         None
         """
+        psnr_vals = []
         n_samples = len(train_input)*(1 + n_local_crops) if use_crops else len(train_input) 
         print('\nTRAINING STARTING...')
-        scheduler = StepLR(self.optimizer, step_size = epochs // 2)
+        scheduler = StepLR(self.optimizer, step_size = epochs // 3)
         for e in range(epochs):
             epoch_loss = 0
             for b in range(0, train_input.size(0), self.mini_batch_size):
@@ -174,7 +177,19 @@ class Model(nn.Module):
                 loss.backward()
                 self.optimizer.step()
             scheduler.step()
+            if test_input != None:
+                # print(psnr_vals)
+                test_input = test_input.to('cpu')
+                
+                self.to('cpu')
+                test_output = self.forward(test_input, sharpen, sharpen_factor)
+                test_output = test_output.to('cuda')
+                self.to('cuda')
+                psnr_vals.append(psnr(test_output/255, test_target/255).item())
+                print(psnr_vals[-1])
             print(f"Epoch {e+1}: Loss = {epoch_loss};")
+            torch.cuda.empty_cache()
+        return psnr_vals
         
     def predict(self, test_input, sharpen = True, sharpen_factor = 1.):
         """
