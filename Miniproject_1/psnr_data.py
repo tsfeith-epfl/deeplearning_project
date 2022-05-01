@@ -39,7 +39,7 @@ for index, exp in enumerate(exps):
     model = exp[0]()
     model.to(device)
     model.criterion = exp[1]()
-    model.optimizer = exp[2](model.parameters(), lr = 5e-4 if exps_name[index][2] == 'Adam' else 5e-5)
+    model.optimizer = exp[2](model.parameters(), lr = 5e-4 if exps_name[index][2] == 'Adam' else 5e-6)
     psnr_vals = model.train(noisy_imgs_1,
                             noisy_imgs_2,
                             200,

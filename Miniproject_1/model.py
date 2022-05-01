@@ -163,7 +163,7 @@ class Model(nn.Module):
         psnr_vals = []
         n_samples = len(train_input)*(1 + n_local_crops) if use_crops else len(train_input) 
         print('\nTRAINING STARTING...')
-        scheduler = StepLR(self.optimizer, step_size = epochs // 3)
+        scheduler = StepLR(self.optimizer, step_size = epochs // 1)
         for e in range(epochs):
             epoch_loss = 0
             for b in range(0, train_input.size(0), self.mini_batch_size):
