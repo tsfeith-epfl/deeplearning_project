@@ -77,14 +77,140 @@ class MSE(Module):
 # -
 
 class SGD():
+    """
+    Stochastic Gradient Descent optimizer
+    """
     def __init__(self, params, lr):
+        """
+        Inputs: model's parameters and learning rate
+        """
         self.params = params
         self.lr = lr
     
     def step(self):
-        for p in self.params: p -= lr*grad?
-        
+        """
+        Perform one step of Stochastig Gradient Descnet
+        """
+        for p, grad in self.params: p -= lr*grad
 
+
+class Sequential(Module): #I may need also functions 
+    
+    def __init__(self, *args):
+        """
+        Initialize an empty list in which we're going to append the modules
+        """
+        self.model = []
+        for module in args:
+            self.model.append(module)
+            
+    def forward(self, input_):
+        """
+        Do the forward pass of each module and keep track of the output
+        """
+        output = self.model[0](input_)
+        for i in range(1, len(self.model)):
+            output = self.model[i](output)
+        return output
+    
+    def backward(self, der):
+        """
+        Do the backward pass of each module and keep track of the gradient
+        """
+        grad = der
+        for module in self.model[::-1]:
+            grad = module.backward(grad)
+            
+        return grad
+
+    def param(self):
+        """
+        Gather the new parameters
+        """
+        params = []
+        for module in self.model:
+            params.append(module.param())
+            
+        return params
+
+
+# +
+from torch.nn.functional import fold, unfold
+
+class Conv2d(Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, bias = False):
+        """
+        Store the attributes and initialize the parameters and gradient tensors
+        """
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.padding = padding
+        self.dialtion = dilation
+        self.w = torch.empty(self.out_channels, kernel_size[0], kernel_size[1]).zero_()
+        self.grad_w = torch.empty(self.out_channels, kernel_size[0], kernel_size[1]).zero_()
+        
+        if bias:
+            self.b = torch.empty(self.in_channels, out_channels, 1).zero_()
+            self.grad_b = torch.empty(self.in_channels, out_channels, 1).zero_()  
+
+    def forward(self, input_):
+        """
+        Perform convolution as a linear transformation
+        """
+        self.input = input_
+        unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dialtion
+                          , padding=self.padding, stride=self.stride)
+        wxb = self.w.view(out_channels, -1) @ unfolded + self.b.view(1, -1, 1)
+        actual = wxb.view(1, out_channels, input_.shape[2] - kernel_size[0] + 1, input_.shape[3] - kernel_size[1] + 1)
+        return actual
+        
+    def backward(self, grad):
+        """
+        Compute gradients wrt parameters(w, b) and input(x)
+        dy/dw = conv(x, dL/dy)
+        dy/db = 
+        dy/dx = 
+        """
+        #is grad already a k[0] x k[1] tensor????
+        unfolded = unfold(self.input, kernel_size = self.kernel_size,  dilation=self.dialtion
+                          , padding=self.padding, stride=self.stride)
+        wxb = grad.view(out_channels, -1) @ unfolded + self.b.view(1, -1, 1)
+        actual = wxb.view(1, self.out_channels, self.input.shape[2] - self.kernel_size[0] + 1,
+                          self.input.shape [3] - self.kernel_size[1] + 1)
+        self.grad_w.add_(actual)
+            
+        
+# -
+
+import torch
+import numpy as np
+x = torch.arange(48, dtype=float).view(1,3,4,4)
+x
+
+torch.nn.functional.unfold(x, kernel_size = (2,2) ).view(1,3,)
+
+y = torch.arange(16, dtype=float).view(4,2,2)
+y.view(4,-1)
+
+unfolded = torch.nn.functional.unfold(x, kernel_size = (2,2) )
+y.view(4,-1) @ unfolded
+
+# +
+in_channels = 3
+out_channels = 4
+kernel_size = (2 , 2)
+# conv = torch . nn . Conv2d ( in˙channels , out˙channels , kernel˙size )
+x = torch.randn((1 , in_channels , 32 , 32))
+
+# Output of PyTorch convolution
+# Output of convolution as a matrix product
+unfolded = torch.nn.functional.unfold(x , kernel_size = kernel_size)
+wxb = y.view(out_channels , -1) @ unfolded + conv.bias.view(1 , -1 , 1)
+actual = wxb.view(1 , out_channels , x.shape[2] - kernel_size[0] + 1 , x.shape_[3] - kernel_size[1] + 1)
+
+# -
 
 # We need to define the following modules: Conv2d, TransposeConv2d or
 # NearestUpsampling, ReLU, Sigmoid, MSE, SGD, Sequential
@@ -147,26 +273,3 @@ class Model ():
         """
 
         pass
-
-
-class MSE(object):
-    def forward(self, *args):
-        raise NotImplementedError
-    def backward(self, *gradwrtoutput):
-        raise NotImplementedError
-    def param(self):
-        return []
-
-
-    
-    def mse(self, prediction, target):
-        """
-        Perform mean squared error given targets and predictions.
-        """
-        return torch.sum((prediction - target)**2)/prediction 
-    
-    def relu(self, activation):
-        return max(0, activation)
-    
-    def sigmoid(self, activation):
-        return 1/(1+exp(-activation))
