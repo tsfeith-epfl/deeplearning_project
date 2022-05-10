@@ -144,7 +144,9 @@ class Model(nn.Module):
               sharpen_factor = 1.,
               use_crops = True,
               test_input = None,
-              test_target = None):
+              test_target = None,
+              gauss_str = 1.,
+              scheduler_step = 2):
         """
         Train the model.
 
@@ -163,20 +165,21 @@ class Model(nn.Module):
         psnr_vals = []
         n_samples = len(train_input)*(1 + n_local_crops) if use_crops else len(train_input) 
         print('\nTRAINING STARTING...')
-        scheduler = StepLR(self.optimizer, step_size = epochs // 1)
+        scheduler = StepLR(self.optimizer, step_size = epochs // scheduler_step)
         for e in range(epochs):
             epoch_loss = 0
             for b in range(0, train_input.size(0), self.mini_batch_size):
                 self.optimizer.zero_grad()
                 train = train_input.narrow(0, b, self.mini_batch_size)
                 target = train_target.narrow(0, b, self.mini_batch_size)
-                train, target = data_augmentations(train, target, use_crops = use_crops, n_local_crops = n_local_crops)
+                train, target = data_augmentations(train, target, use_crops = use_crops, n_local_crops = n_local_crops, gauss_str = gauss_str)
                 output = self.forward(train, sharpen, sharpen_factor)
                 loss = self.criterion(output, target)
                 epoch_loss += loss.item()/n_samples
                 loss.backward()
                 self.optimizer.step()
             scheduler.step()
+            print(scheduler.get_last_lr())
             if test_input != None:
                 # print(psnr_vals)
                 test_input = test_input.to('cpu')
@@ -214,25 +217,26 @@ def data_augmentations(imgs_1,
                        hflip_prob = 0.5,
                        vflip_prob = 0.5,
                        use_crops = True,
-                       n_local_crops = 2):
+                       n_local_crops = 2,
+                       gauss_str = 1.):
     H, W = imgs_1.shape[-2], imgs_1.shape[-1]
     
     if use_crops:
         global_augs = transforms.Compose([transforms.RandomHorizontalFlip(p=hflip_prob),
                                           transforms.RandomVerticalFlip(p=vflip_prob),
                                           transforms.RandomResizedCrop((H,W), scale = (0.7, 1.0)),
-                                          AddGaussianNoise(0., 1.)
+                                          AddGaussianNoise(0., gauss_str)
                                           ])
 
         local_augs = transforms.Compose([transforms.RandomHorizontalFlip(p=hflip_prob),
                                          transforms.RandomVerticalFlip(p=vflip_prob),
                                          transforms.RandomResizedCrop((H,W), scale = (0.05, 0.4)),
-                                         AddGaussianNoise(0., 1.)
+                                         AddGaussianNoise(0., gauss_str)
                                          ])
     else:
         global_augs = transforms.Compose([transforms.RandomHorizontalFlip(p=hflip_prob),
                                           transforms.RandomVerticalFlip(p=vflip_prob),
-                                          AddGaussianNoise(0., 1.)
+                                          AddGaussianNoise(0., gauss_str)
                                           ])
         n_local_crops = 0
         
