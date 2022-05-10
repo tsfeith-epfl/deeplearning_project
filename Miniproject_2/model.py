@@ -180,9 +180,11 @@ class Conv2d(Module):
         actual = wxb.view(1, self.out_channels, self.input.shape[2] - self.kernel_size[0] + 1,
                           self.input.shape [3] - self.kernel_size[1] + 1)
         self.grad_w.add_(actual)
-            
-        
+
+
 # -
+
+# Working space below
 
 import torch
 import numpy as np
