@@ -29,7 +29,7 @@ experiment_name = ''
 
 gauss_strength = [1., 5., 10.]
 starting_lr = [5e-3, 1e-3, 5e-4, 1e-4]
-lr_decrease = [1, 2, 3]
+lr_decrease = [1]
 
 
 for g_str in gauss_strength:

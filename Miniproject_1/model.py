@@ -6,6 +6,7 @@ from torch.optim.lr_scheduler import StepLR
 from torch import optim
 from torchvision import transforms
 import random
+from time import perf_counter
 import cv2
 
 from others.gauss_noise import AddGaussianNoise
@@ -54,7 +55,8 @@ class Model(nn.Module):
         self.criterion = nn.MSELoss()
         self.optimizer = optim.Adam(self.parameters(), lr = 5e-5)
 
-        self.mini_batch_size = 625
+        # self.mini_batch_size = 625
+        self.mini_batch_size = 125
         
         # Initialize weights
         self._init_weights()
@@ -297,8 +299,8 @@ if __name__ == '__main__':
     print('DEVICE DEFINED', device)
     noisy_imgs_1 = noisy_imgs_1.to(device)
     noisy_imgs_2 = noisy_imgs_2.to(device)
-    noisy_imgs = noisy_imgs.to(device)
-    clean_imgs = clean_imgs.to(device)
+    noisy_imgs = noisy_imgs.to('cpu')
+    clean_imgs = clean_imgs.to('cpu')
     print('DATA PASSED TO DEVICE')
 
     # ----------- AUGMENTATIONS TESTS: EVERYTHING SEEMS TO BE FINE ----------------------
@@ -325,7 +327,7 @@ if __name__ == '__main__':
 
     # ------------------------- OUTPUT TEST --------------------------------------
     # ----------------------- DELETE AFTERWARDS ----------------------------------
-
+    """
     model = Model()
     model.to(device)
     model.load_pretrained_model()
@@ -333,7 +335,7 @@ if __name__ == '__main__':
     cv2.imwrite(f'noisy_1.png', noisy_imgs_1[0].permute(1,2,0).cpu().numpy())
     cv2.imwrite(f'noisy_2.png', noisy_imgs_2[0].permute(1,2,0).cpu().numpy())
     cv2.imwrite(f'output.png', output[0].permute(1,2,0).cpu().detach().numpy())
-
+    """
     # ---------------- CODE TO TRAIN --------------------
     """
     model = Model()
@@ -345,3 +347,22 @@ if __name__ == '__main__':
     """
 
     # --
+    
+    model = Model()
+    model.to(device)
+    model.criterion = nn.MSELoss()
+    model.optimizer = optim.Adam(model.parameters(), lr = 1e-4)
+    start = perf_counter()
+    model.train(noisy_imgs_1,
+                noisy_imgs_2,
+                20,
+                sharpen = True,
+                use_crops = True,
+                gauss_str = 1,
+                scheduler_step = 2)
+    end = perf_counter()
+    model.to('cpu')
+    pred = model.predict(noisy_imgs, sharpen = False)
+    psnr_val = psnr(pred/255, clean_imgs/255)
+    val_loss = model.criterion(pred, clean_imgs)
+    print(psnr_val, val_loss, (end-start)/60)
