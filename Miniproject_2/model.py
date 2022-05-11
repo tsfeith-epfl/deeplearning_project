@@ -148,8 +148,8 @@ class Conv2d(Module):
         self.stride = stride
         self.padding = padding
         self.dialtion = dilation
-        self.w = torch.empty(self.out_channels, kernel_size[0], kernel_size[1]).zero_()
-        self.grad_w = torch.empty(self.out_channels, kernel_size[0], kernel_size[1]).zero_()
+        self.w = torch.empty(self.out_channels, self.in_channels, kernel_size[0], kernel_size[1]).zero_()
+        self.grad_w = torch.empty(self.out_channels, self.in_channels, kernel_size[0], kernel_size[1]).zero_()
         
         if bias:
             self.b = torch.empty(self.in_channels, out_channels, 1).zero_()
@@ -162,8 +162,10 @@ class Conv2d(Module):
         self.input = input_
         unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dialtion
                           , padding=self.padding, stride=self.stride)
-        wxb = self.w.view(out_channels, -1) @ unfolded + self.b.view(1, -1, 1)
-        actual = wxb.view(1, out_channels, input_.shape[2] - kernel_size[0] + 1, input_.shape[3] - kernel_size[1] + 1)
+        wxb = self.w.view(self.out_channels, -1) @ unfolded + self.b.view(1, -1, 1)
+        actual = wxb.view(1, out_channels,
+                          math.floor((input_.shape[2] + 2*self.padding[0] - self.dilation[0]*(self.kernel_size[0] - 1) - 1)/self.stride[0] + 1),
+                          math.floor((input_.shape[3] + 2*self.padding[1] - self.dialtion[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
         return actual
         
     def backward(self, grad):
@@ -191,28 +193,40 @@ import numpy as np
 x = torch.arange(48, dtype=float).view(1,3,4,4)
 x
 
-torch.nn.functional.unfold(x, kernel_size = (2,2) ).view(1,3,)
+(y.view(4,-1) @ torch.nn.functional.unfold(x, kernel_size = (2,2), stride = 2)).shape
 
-y = torch.arange(16, dtype=float).view(4,2,2)
+y = torch.arange(48, dtype=float).view(4,3,2,2)
+y.view(4,-1).shape
+
+unfolded = torch.nn.functional.unfold(x, kernel_size = (2,2))
+actual = y.view(4,-1).float() @ unfolded.float()
+actual.view(1, 4, x.shape[2] - y.shape[2] + 1,
+                          x.shape[3] - y.shape[3] + 1).shape
+
 y.view(4,-1)
 
-unfolded = torch.nn.functional.unfold(x, kernel_size = (2,2) )
-y.view(4,-1) @ unfolded
+x.shape
 
 # +
 in_channels = 3
 out_channels = 4
 kernel_size = (2 , 2)
+
 # conv = torch . nn . Conv2d ( in˙channels , out˙channels , kernel˙size )
 x = torch.randn((1 , in_channels , 32 , 32))
+y = torch.arange(48, dtype=float).view(4,3,2,2)
+stride = (2,2)
 
 # Output of PyTorch convolution
 # Output of convolution as a matrix product
-unfolded = torch.nn.functional.unfold(x , kernel_size = kernel_size)
-wxb = y.view(out_channels , -1) @ unfolded + conv.bias.view(1 , -1 , 1)
-actual = wxb.view(1 , out_channels , x.shape[2] - kernel_size[0] + 1 , x.shape_[3] - kernel_size[1] + 1)
-
+unfolded1 = torch.nn.functional.unfold(x , kernel_size = kernel_size, stride=2)
+wxb = y.view(out_channels , -1).float() @ unfolded1.float() #+ conv.bias.view(1 , -1 , 1)
+actual = wxb.view(1 , out_channels , math.floor((x.shape[2] - kernel_size[0])/stride[0]) + 1 , math.floor((x.shape[3] - kernel_size[1])/stride[1]) + 1)
+actual.shape
 # -
+
+math.floor(8.2)
+
 
 # We need to define the following modules: Conv2d, TransposeConv2d or
 # NearestUpsampling, ReLU, Sigmoid, MSE, SGD, Sequential
