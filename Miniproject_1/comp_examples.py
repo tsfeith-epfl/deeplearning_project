@@ -17,8 +17,7 @@ if __name__ == '__main__':
     clean_imgs = clean_imgs.to(device)
     
     with torch.no_grad():
-    
-        for index, file in enumerate(glob.glob("outputs*/*/*.pth")):
+        for index, file in enumerate(glob.glob("outputs_finetuning/*/*.pth")):
             model_type = file.split("/")[0][8:]
             params = file.split("/")[1].split("_")
             out_dir = file[:-13]
