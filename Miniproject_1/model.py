@@ -6,6 +6,7 @@ from torch.optim.lr_scheduler import StepLR
 from torch import optim
 from torchvision import transforms
 import random
+from time import perf_counter
 import cv2
 
 from others.gauss_noise import AddGaussianNoise
@@ -50,12 +51,14 @@ class Model(nn.Module):
         self.dec_conv1a = nn.Conv2d(99, 64, kernel_size=3, padding='same')
         self.dec_conv1b = nn.Conv2d(64, 32, kernel_size=3, padding='same')
         self.dec_conv1 = nn.Conv2d(32, 3, kernel_size=3, padding='same')
-        
+                
         self.criterion = nn.MSELoss()
         self.optimizer = optim.Adam(self.parameters(), lr = 5e-5)
 
         self.mini_batch_size = 625
         
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
         # Initialize weights
         self._init_weights()
 
@@ -163,6 +166,7 @@ class Model(nn.Module):
         None
         """
         psnr_vals = []
+        psnr_stds = []
         n_samples = len(train_input)*(1 + n_local_crops) if use_crops else len(train_input) 
         print('\nTRAINING STARTING...')
         scheduler = StepLR(self.optimizer, step_size = epochs // scheduler_step)
@@ -179,20 +183,24 @@ class Model(nn.Module):
                 loss.backward()
                 self.optimizer.step()
             scheduler.step()
-            print(scheduler.get_last_lr())
             if test_input != None:
-                # print(psnr_vals)
-                test_input = test_input.to('cpu')
-                
-                self.to('cpu')
-                test_output = self.forward(test_input, sharpen, sharpen_factor)
-                test_output = test_output.to('cuda')
-                self.to('cuda')
-                psnr_vals.append(psnr(test_output/255, test_target/255).item())
-                print(psnr_vals[-1])
+                with torch.no_grad():
+                    psnr_all = []
+                    for _ in range(100):
+                        samples = torch.rand(500)*test_input.shape[0]
+                        samples = samples.type(torch.int)
+                        samples = samples.to(self.device)
+                        pred = self.predict(torch.index_select(test_input, 0, samples))
+                        psnr_all.append(psnr(pred/255, torch.index_select(test_target, 0, samples)/255))
+                    mean_psnr = torch.mean(torch.Tensor(psnr_all))
+                    std_psnr  = torch.std(torch.Tensor(psnr_all))
+
+                    psnr_vals.append(mean_psnr.item())
+                    psnr_stds.append(std_psnr.item())
+                print(psnr_vals[-1], psnr_stds[-1])
             print(f"Epoch {e+1}: Loss = {epoch_loss};")
-            torch.cuda.empty_cache()
-        return psnr_vals
+            print(self.sharp_factor.item())
+        return psnr_vals, psnr_stds
         
     def predict(self, test_input, sharpen = True, sharpen_factor = 1.):
         """
@@ -297,51 +305,26 @@ if __name__ == '__main__':
     print('DEVICE DEFINED', device)
     noisy_imgs_1 = noisy_imgs_1.to(device)
     noisy_imgs_2 = noisy_imgs_2.to(device)
-    noisy_imgs = noisy_imgs.to(device)
-    clean_imgs = clean_imgs.to(device)
+    noisy_imgs = noisy_imgs.to('cpu')
+    clean_imgs = clean_imgs.to('cpu')
     print('DATA PASSED TO DEVICE')
 
-    # ----------- AUGMENTATIONS TESTS: EVERYTHING SEEMS TO BE FINE ----------------------
-    # ----------------------- DELETE AFTERWARDS -----------------------------------------
-    """
-    new_imgs_1, new_imgs_2 = data_augmentation(noisy_imgs_1[:1,:,:,:], noisy_imgs_2[:1,:,:,:])
-
-    print(new_imgs_1.shape)
-
-    for i in range(len(new_imgs_1)):
-        cv2.imwrite(f'new_1_{i}.png', new_imgs_1[i].permute(1,2,0).cpu().numpy())
-        cv2.imwrite(f'new_2_{i}.png', new_imgs_2[i].permute(1,2,0).cpu().numpy())
-    cv2.imwrite(f'noisy_1.png', noisy_imgs_1[0].permute(1,2,0).cpu().numpy())
-    cv2.imwrite(f'noisy_2.png', noisy_imgs_2[0].permute(1,2,0).cpu().numpy())
-    """
-    # ----------------------------------------------------------------------------------
-
-    # ---------------------- FORWARD PASS TESTS; JUST TO MAKE SURE IT'S WORKING --------
-    # ----------------------------DELETE AFTERWARDS ------------------------------------
-    """
-    model = Model()
-    print(model.forward(noisy_imgs_1[:10]).shape)
-    """
-
-    # ------------------------- OUTPUT TEST --------------------------------------
-    # ----------------------- DELETE AFTERWARDS ----------------------------------
-
+    
     model = Model()
     model.to(device)
-    model.load_pretrained_model()
-    output = model.forward(noisy_imgs_1[:1])
-    cv2.imwrite(f'noisy_1.png', noisy_imgs_1[0].permute(1,2,0).cpu().numpy())
-    cv2.imwrite(f'noisy_2.png', noisy_imgs_2[0].permute(1,2,0).cpu().numpy())
-    cv2.imwrite(f'output.png', output[0].permute(1,2,0).cpu().detach().numpy())
-
-    # ---------------- CODE TO TRAIN --------------------
-    """
-    model = Model()
-    model.load_pretrained_model()
-    model.to(device)
-    model.train(noisy_imgs_1, noisy_imgs_2, use_augs = False)
-    # model.to('cuda')
-    torch.save(model.state_dict(), './test_model.pth')
-    """
-
-    # --
+    model.criterion = nn.MSELoss()
+    model.optimizer = optim.Adam(model.parameters(), lr = 1e-4)
+    start = perf_counter()
+    model.train(noisy_imgs_1,
+                noisy_imgs_2,
+                20,
+                sharpen = True,
+                use_crops = True,
+                gauss_str = 1,
+                scheduler_step = 2)
+    end = perf_counter()
+    model.to('cpu')
+    pred = model.predict(noisy_imgs, sharpen = False)
+    psnr_val = psnr(pred/255, clean_imgs/255)
+    val_loss = model.criterion(pred, clean_imgs)
+    print(psnr_val, val_loss, (end-start)/60)

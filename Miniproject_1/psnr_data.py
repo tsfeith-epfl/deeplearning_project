@@ -23,12 +23,10 @@ noisy_imgs = noisy_imgs.to(device)
 clean_imgs = clean_imgs.to(device)
 print('DATA PASSED TO DEVICE')
 
-exps = [[Model, nn.MSELoss, optim.Adam, False, False],
-        [Model, nn.MSELoss, optim.Adam, True, False],
+exps = [[Model, nn.MSELoss, optim.Adam, True, False],
         [Model, nn.MSELoss, optim.SGD, True, False]]
 
-exps_name = [['TConv', 'MSE', 'Adam', 'no_sharp', 'no_crops'],
-             ['TConv', 'MSE', 'Adam', 'yes_sharp', 'no_crops'],
+exps_name = [['TConv', 'MSE', 'Adam', 'yes_sharp', 'no_crops'],
              ['TConv', 'MSE', 'SGD', 'yes_sharp', 'no_crops']]
 
 for index, exp in enumerate(exps):
@@ -40,16 +38,17 @@ for index, exp in enumerate(exps):
     model.to(device)
     model.criterion = exp[1]()
     model.optimizer = exp[2](model.parameters(), lr = 5e-4 if exps_name[index][2] == 'Adam' else 5e-6)
-    psnr_vals = model.train(noisy_imgs_1,
-                            noisy_imgs_2,
-                            200,
-                            sharpen = exp[3],
-                            use_crops = exp[4],
-                            test_input = noisy_imgs,
-                            test_target = clean_imgs)
+    psnr_vals, psnr_stds = model.train(noisy_imgs_1,
+                                       noisy_imgs_2,
+                                       150,
+                                       sharpen = exp[3],
+                                       use_crops = exp[4],
+                                       test_input = noisy_imgs,
+                                       test_target = clean_imgs)
     f = open(f"./psnr_time/{experiment_name}.txt", 'w')
     vals_str = ""
-    for val in psnr_vals:
-        vals_str += f"{val}\n"
+    print(len(psnr_vals), len(psnr_stds))
+    for index, val in enumerate(psnr_vals):
+        vals_str += f"{val}+-{psnr_stds[index]}\n"
     f.write(vals_str)
     f.close()
