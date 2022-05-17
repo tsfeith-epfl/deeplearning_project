@@ -33,11 +33,11 @@ class ReLU(Module):
         """
         return max(0, input_)
     
-    def backward(self, input_):
+    def backward(self, gradwrtoutput):
         """
         Derivative of ReLU: 1 if input > 0, 0 elsewhere
         """
-        return int(input_>0)
+        return int(gradwrtoutput>0)
     
 class Sigmoid(Module):
     def forward(self, input_):
@@ -46,11 +46,11 @@ class Sigmoid(Module):
         """
         return 1/(1+math.exp(-input_))
     
-    def backward(self, input_):
+    def backward(self, gradwrtoutput):
         """
         Derivative of sigmoid: dsig(x)/dx = sig(x)(1-sig(x))
         """
-        return forward(input_)*(1-forward(input_))
+        return forward(gradwrtoutput)*(1-forward(gradwrtoutput))
     
 ## LOSS FUNCTIONS
 
@@ -70,8 +70,6 @@ class MSE(Module):
         Derivative of MSE = -2/N * (y - f(x))
         """
         return -2*sum([(self.targets[i] - self.predictions[i]) for i in range(self.size)]) / self.size
-        
-    
 
 
 # -
@@ -113,13 +111,13 @@ class Sequential(Module): #I may need also functions
             output = self.model[i](output)
         return output
     
-    def backward(self, der):
+    def backward(self, gradwrtoutput):
         """
         Do the backward pass of each module and keep track of the gradient
         """
-        grad = der
+        grad = gradwrtoutput
         for module in self.model[::-1]:
-            grad = module.backward(grad)
+            grad += module.backward(grad)
             
         return grad
 
@@ -178,20 +176,72 @@ class Conv2d(Module):
         #is grad already a k[0] x k[1] tensor????
         unfolded = unfold(self.input, kernel_size = self.kernel_size,  dilation=self.dialtion
                           , padding=self.padding, stride=self.stride)
-        wxb = grad.view(out_channels, -1) @ unfolded + self.b.view(1, -1, 1)
-        actual = wxb.view(1, self.out_channels, self.input.shape[2] - self.kernel_size[0] + 1,
-                          self.input.shape [3] - self.kernel_size[1] + 1)
+        wxb = grad.view(self.out_channels, -1) @ unfolded + self.b.view(1, -1, 1)
+        actual = wxb.view(1, self.out_channels,
+                          math.floor((input_.shape[2] + 2*self.padding[0] - self.dilation[0]*(self.kernel_size[0] - 1) - 1)/self.stride[0] + 1),
+                          math.floor((input_.shape[3] + 2*self.padding[1] - self.dialtion[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
         self.grad_w.add_(actual)
+        
+        ###return dy/dx
 
 
 # -
+
+class NearestUpsampling(Upsampling):
+    def __init__(self, scale_factor):
+        """
+        Store the attributes
+        """
+        super().__init__(scale_factor)
+
+    def forward(self, input_):
+        """
+        Perform upsampling using nearest neighbor rule
+        """
+        self.input = input_ #do we need this? I'm tired so I'm not understanding a lot rn :)
+        return self.input.repeat_interleave(self.scale_factor,3).repeat_interleave(self.scale_factor,2)
+    
+    def backward(self, grad):
+        pass
+
+
+class Upsampling(Module):
+    def __init__(self, scale_factor):
+        """
+        Store the attributes
+        """
+        self.scale_factor = scale_factor
+
+    def forward(self, input_):
+        """
+        perform upsampling using nearest neighbor rule and then convolution, to have a transposed convolution
+        """
+        self.input = input_ #same as above
+        self.in_channels = input_.shape[0] #[1] if we have more images
+        self.out_channels = self.in_channels
+        kernel_size = (self.scale_factor, self.scale_factor)
+        conv = Conv2d(self.in_channels, self.out_channels, kernel_size=kernel_size, stride = self.scale_factor)
+        nearest_upsampling = NearestUpsampling(self.scale_factor)
+        return conv.forward(nearest_sampling.forward(input_))
+    
+    def backward(self, grad):
+        pass
+
+
 
 # Working space below
 
 import torch
 import numpy as np
-x = torch.arange(48, dtype=float).view(1,3,4,4)
-x
+x = torch.arange(1, 13, dtype=torch.float32).view(3, 2, 2)
+x.shape[0]
+
+y = torch.empty(2,2)
+y.shape[-1]
+
+from torch.nn import Upsample
+m = Upsample(scale_factor=5, mode='nearest')
+m(x)
 
 (y.view(4,-1) @ torch.nn.functional.unfold(x, kernel_size = (2,2), stride = 2)).shape
 
