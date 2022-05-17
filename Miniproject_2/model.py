@@ -31,26 +31,31 @@ class ReLU(Module):
         """
         ReLU(x) = max(0, x): returns the max between 0 and the input
         """
-        return max(0, input_)
+        input_[input_<torch.empty(input_.shape).zero_()]=0
+        return input_
     
     def backward(self, gradwrtoutput):
         """
         Derivative of ReLU: 1 if input > 0, 0 elsewhere
         """
-        return int(gradwrtoutput>0)
+        zeros = torch.empty(gradwrtoutput.shape).zero_() 
+        zeros[gradwrtoutput > zeros] = 1
+        return zeros
     
 class Sigmoid(Module):
     def forward(self, input_):
         """
         Sigmoid(x) = 1/(1+e^(-x))
         """
-        return 1/(1+math.exp(-input_))
+        copy = input_.detach().clone()
+        return copy.apply_(lambda x: 1/(1+math.exp(-x)))
     
     def backward(self, gradwrtoutput):
         """
         Derivative of sigmoid: dsig(x)/dx = sig(x)(1-sig(x))
         """
-        return forward(gradwrtoutput)*(1-forward(gradwrtoutput))
+        copy = gradwrtoutput.detach().clone()
+        return copy.apply_(lambda x: forward(x)*(1-forward(x)))
     
 ## LOSS FUNCTIONS
 
@@ -106,9 +111,9 @@ class Sequential(Module): #I may need also functions
         """
         Do the forward pass of each module and keep track of the output
         """
-        output = self.model[0](input_)
+        output = self.model[0].forward(input_)
         for i in range(1, len(self.model)):
-            output = self.model[i](output)
+            output = self.model[i].forward(output)
         return output
     
     def backward(self, gradwrtoutput):
@@ -134,6 +139,7 @@ class Sequential(Module): #I may need also functions
 
 # +
 from torch.nn.functional import fold, unfold
+##ADD weights initialization
 
 class Conv2d(Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, bias = False):
@@ -141,29 +147,61 @@ class Conv2d(Module):
         Store the attributes and initialize the parameters and gradient tensors
         """
         self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.kernel_size = kernel_size
-        self.stride = stride
-        self.padding = padding
-        self.dialtion = dilation
-        self.w = torch.empty(self.out_channels, self.in_channels, kernel_size[0], kernel_size[1]).zero_()
-        self.grad_w = torch.empty(self.out_channels, self.in_channels, kernel_size[0], kernel_size[1]).zero_()
         
-        if bias:
-            self.b = torch.empty(self.in_channels, out_channels, 1).zero_()
-            self.grad_b = torch.empty(self.in_channels, out_channels, 1).zero_()  
+        self.out_channels = out_channels
+        
+        if type(kernel_size) == int:
+            self.kernel_size = (kernel_size,kernel_size)
+        elif type(kernel_size) == tuple:
+            self.kernel_size = kernel_size
+        else: 
+            raise Exception("Please enter kernel size parameters as tuple or int")
+                
+        if type(stride) == int:
+            self.stride = (stride,stride)
+        elif type(stride) == tuple:
+            self.stride = stride
+        else: 
+            raise Exception("Please enter stride parameters as tuple or int")
+            
+        if type(padding) == int:
+            self.padding = (padding,padding)
+        elif type(padding) == tuple:
+            self.padding = padding
+        else: 
+            raise Exception("Please enter padding parameters as tuple or int")
+            
+        if type(dilation) == int:
+            self.dilation = (dilation,dilation)
+        elif type(dilation) == tuple:
+            self.dilation = dilation
+        else: 
+            raise Exception("Please enter dialtion parameters as tuple or int")    
+            
+        self.bias = bias
+        self.w = torch.empty(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]).zero_()
+        self.grad_w = torch.empty(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]).zero_()
+        
+        if self.bias:
+            self.b = torch.empty(self.in_channels, self.out_channels, 1).zero_()
+            self.grad_b = torch.empty(self.in_channels, self.out_channels, 1).zero_()  
 
     def forward(self, input_):
         """
         Perform convolution as a linear transformation
         """
         self.input = input_
-        unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dialtion
+        output = torch.empty(self.input.shape)
+        unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dilation
                           , padding=self.padding, stride=self.stride)
-        wxb = self.w.view(self.out_channels, -1) @ unfolded + self.b.view(1, -1, 1)
-        actual = wxb.view(1, out_channels,
+        if self.bias:
+            wxb = self.w.view(self.out_channels, -1) @ unfolded + self.b.view(1, -1, 1)
+        else:
+            wxb = self.w.view(self.out_channels, -1) @ unfolded
+
+        actual = wxb.view(input_.shape[0], self.out_channels,
                           math.floor((input_.shape[2] + 2*self.padding[0] - self.dilation[0]*(self.kernel_size[0] - 1) - 1)/self.stride[0] + 1),
-                          math.floor((input_.shape[3] + 2*self.padding[1] - self.dialtion[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
+                          math.floor((input_.shape[3] + 2*self.padding[1] - self.dilation[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
         return actual
         
     def backward(self, grad):
@@ -217,65 +255,23 @@ class Upsampling(Module):
         perform upsampling using nearest neighbor rule and then convolution, to have a transposed convolution
         """
         self.input = input_ #same as above
-        self.in_channels = input_.shape[0] #[1] if we have more images
+        self.in_channels = input_.shape[1] #[1] if we have more images
         self.out_channels = self.in_channels
         kernel_size = (self.scale_factor, self.scale_factor)
         conv = Conv2d(self.in_channels, self.out_channels, kernel_size=kernel_size, stride = self.scale_factor)
         nearest_upsampling = NearestUpsampling(self.scale_factor)
-        return conv.forward(nearest_sampling.forward(input_))
+        return conv.forward(nearest_upsampling.forward(input_))
     
     def backward(self, grad):
         pass
-
 
 
 # Working space below
 
 import torch
 import numpy as np
-x = torch.arange(1, 13, dtype=torch.float32).view(3, 2, 2)
-x.shape[0]
-
-y = torch.empty(2,2)
-y.shape[-1]
-
-from torch.nn import Upsample
-m = Upsample(scale_factor=5, mode='nearest')
-m(x)
-
-(y.view(4,-1) @ torch.nn.functional.unfold(x, kernel_size = (2,2), stride = 2)).shape
-
-y = torch.arange(48, dtype=float).view(4,3,2,2)
-y.view(4,-1).shape
-
-unfolded = torch.nn.functional.unfold(x, kernel_size = (2,2))
-actual = y.view(4,-1).float() @ unfolded.float()
-actual.view(1, 4, x.shape[2] - y.shape[2] + 1,
-                          x.shape[3] - y.shape[3] + 1).shape
-
-y.view(4,-1)
-
-x.shape
-
-# +
-in_channels = 3
-out_channels = 4
-kernel_size = (2 , 2)
-
-# conv = torch . nn . Conv2d ( in˙channels , out˙channels , kernel˙size )
-x = torch.randn((1 , in_channels , 32 , 32))
-y = torch.arange(48, dtype=float).view(4,3,2,2)
-stride = (2,2)
-
-# Output of PyTorch convolution
-# Output of convolution as a matrix product
-unfolded1 = torch.nn.functional.unfold(x , kernel_size = kernel_size, stride=2)
-wxb = y.view(out_channels , -1).float() @ unfolded1.float() #+ conv.bias.view(1 , -1 , 1)
-actual = wxb.view(1 , out_channels , math.floor((x.shape[2] - kernel_size[0])/stride[0]) + 1 , math.floor((x.shape[3] - kernel_size[1])/stride[1]) + 1)
-actual.shape
-# -
-
-math.floor(8.2)
+x = torch.rand(2,3,4,4)
+x
 
 
 # We need to define the following modules: Conv2d, TransposeConv2d or
