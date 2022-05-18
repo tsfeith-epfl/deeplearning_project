@@ -6,8 +6,6 @@ from torch.optim.lr_scheduler import StepLR
 from torch import optim
 from torchvision import transforms
 import random
-from time import perf_counter
-import cv2
 
 from others.gauss_noise import AddGaussianNoise
 
@@ -21,8 +19,7 @@ class Model(nn.Module):
         None
         """
         super(Model, self).__init__()
-        
-        # All convolutions use padding mode “same”
+
         self.enc_conv0 = nn.Conv2d(3, 48, kernel_size=3, padding='same')
         self.enc_conv1 = nn.Conv2d(48, 48, kernel_size=3, padding='same')
         self.pool1 = nn.MaxPool2d(kernel_size=2)
@@ -51,14 +48,12 @@ class Model(nn.Module):
         self.dec_conv1a = nn.Conv2d(99, 64, kernel_size=3, padding='same')
         self.dec_conv1b = nn.Conv2d(64, 32, kernel_size=3, padding='same')
         self.dec_conv1 = nn.Conv2d(32, 3, kernel_size=3, padding='same')
-                
+        
         self.criterion = nn.MSELoss()
-        self.optimizer = optim.Adam(self.parameters(), lr = 5e-5)
+        self.optimizer = optim.Adam(self.parameters(), lr = 1e-3)
 
         self.mini_batch_size = 625
         
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
         # Initialize weights
         self._init_weights()
 
@@ -142,14 +137,10 @@ class Model(nn.Module):
               train_input,
               train_target,
               epochs,
+              use_crops = False,
               n_local_crops = 2,
               sharpen = True,
-              sharpen_factor = 1.,
-              use_crops = True,
-              test_input = None,
-              test_target = None,
-              gauss_str = 1.,
-              scheduler_step = 2):
+              sharpen_factor = 1.):
         """
         Train the model.
 
@@ -165,42 +156,22 @@ class Model(nn.Module):
         -------
         None
         """
-        psnr_vals = []
-        psnr_stds = []
         n_samples = len(train_input)*(1 + n_local_crops) if use_crops else len(train_input) 
         print('\nTRAINING STARTING...')
-        scheduler = StepLR(self.optimizer, step_size = epochs // scheduler_step)
         for e in range(epochs):
             epoch_loss = 0
             for b in range(0, train_input.size(0), self.mini_batch_size):
+                print(b)
                 self.optimizer.zero_grad()
                 train = train_input.narrow(0, b, self.mini_batch_size)
                 target = train_target.narrow(0, b, self.mini_batch_size)
-                train, target = data_augmentations(train, target, use_crops = use_crops, n_local_crops = n_local_crops, gauss_str = gauss_str)
+                train, target = data_augmentations(train, target, use_crops = use_crops, n_local_crops = n_local_crops)
                 output = self.forward(train, sharpen, sharpen_factor)
                 loss = self.criterion(output, target)
                 epoch_loss += loss.item()/n_samples
                 loss.backward()
                 self.optimizer.step()
-            scheduler.step()
-            if test_input != None:
-                with torch.no_grad():
-                    psnr_all = []
-                    for _ in range(100):
-                        samples = torch.rand(500)*test_input.shape[0]
-                        samples = samples.type(torch.int)
-                        samples = samples.to(self.device)
-                        pred = self.predict(torch.index_select(test_input, 0, samples))
-                        psnr_all.append(psnr(pred/255, torch.index_select(test_target, 0, samples)/255))
-                    mean_psnr = torch.mean(torch.Tensor(psnr_all))
-                    std_psnr  = torch.std(torch.Tensor(psnr_all))
-
-                    psnr_vals.append(mean_psnr.item())
-                    psnr_stds.append(std_psnr.item())
-                print(psnr_vals[-1], psnr_stds[-1])
             print(f"Epoch {e+1}: Loss = {epoch_loss};")
-            print(self.sharp_factor.item())
-        return psnr_vals, psnr_stds
         
     def predict(self, test_input, sharpen = True, sharpen_factor = 1.):
         """
@@ -224,30 +195,28 @@ def data_augmentations(imgs_1,
                        imgs_2,
                        hflip_prob = 0.5,
                        vflip_prob = 0.5,
-                       use_crops = True,
-                       n_local_crops = 2,
-                       gauss_str = 1.):
+                       use_crops = False,
+                       n_local_crops = 2):
     H, W = imgs_1.shape[-2], imgs_1.shape[-1]
     
     if use_crops:
         global_augs = transforms.Compose([transforms.RandomHorizontalFlip(p=hflip_prob),
                                           transforms.RandomVerticalFlip(p=vflip_prob),
                                           transforms.RandomResizedCrop((H,W), scale = (0.7, 1.0)),
-                                          AddGaussianNoise(0., gauss_str)
+                                          AddGaussianNoise(0., 5.)
                                           ])
 
         local_augs = transforms.Compose([transforms.RandomHorizontalFlip(p=hflip_prob),
                                          transforms.RandomVerticalFlip(p=vflip_prob),
                                          transforms.RandomResizedCrop((H,W), scale = (0.05, 0.4)),
-                                         AddGaussianNoise(0., gauss_str)
+                                         AddGaussianNoise(0., 5.)
                                          ])
     else:
         global_augs = transforms.Compose([transforms.RandomHorizontalFlip(p=hflip_prob),
                                           transforms.RandomVerticalFlip(p=vflip_prob),
-                                          AddGaussianNoise(0., gauss_str)
+                                          AddGaussianNoise(0., 5.)
                                           ])
         n_local_crops = 0
-        
         
     # We use several local crops and 1 global crop per image
     # Hopefully the global views will help the model to learn the general image modifications
@@ -285,9 +254,9 @@ def psnr(denoised, ground_truth):
     psnr : float
         Value of peak signal to noise ratio.
 
-    """    
+    """ 
     mse = torch.mean((denoised-ground_truth)**2)
-    psnr = -10*torch.log10(mse+10**-8)
+    psnr = 20*torch.log10(torch.max(denoised)) - 10*torch.log10(mse+10**-8)
     return psnr
 
 if __name__ == '__main__':
@@ -305,26 +274,16 @@ if __name__ == '__main__':
     print('DEVICE DEFINED', device)
     noisy_imgs_1 = noisy_imgs_1.to(device)
     noisy_imgs_2 = noisy_imgs_2.to(device)
-    noisy_imgs = noisy_imgs.to('cpu')
-    clean_imgs = clean_imgs.to('cpu')
+    noisy_imgs = noisy_imgs.to(device)
+    clean_imgs = clean_imgs.to(device)
     print('DATA PASSED TO DEVICE')
 
-    
+
+
     model = Model()
     model.to(device)
-    model.criterion = nn.MSELoss()
-    model.optimizer = optim.Adam(model.parameters(), lr = 1e-4)
-    start = perf_counter()
-    model.train(noisy_imgs_1,
-                noisy_imgs_2,
-                20,
-                sharpen = True,
-                use_crops = True,
-                gauss_str = 1,
-                scheduler_step = 2)
-    end = perf_counter()
-    model.to('cpu')
-    pred = model.predict(noisy_imgs, sharpen = False)
-    psnr_val = psnr(pred/255, clean_imgs/255)
-    val_loss = model.criterion(pred, clean_imgs)
-    print(psnr_val, val_loss, (end-start)/60)
+    model.load_pretrained_model()
+    # model.train(noisy_imgs_1, noisy_imgs_2, 60)
+
+    output = model.forward(noisy_imgs)
+    print(f'PSNR: {psnr(output/255, clean_imgs/255)} dB')
