@@ -163,19 +163,28 @@ class Conv2d(Module):
         else: 
             raise Exception("Please enter stride parameters as tuple or int")
             
-        if isinstance(padding, int):
-            self.padding = (padding,padding)
-        elif isinstance(padding, tuple):
-            self.padding = padding
-        else: 
-            raise Exception("Please enter padding parameters as tuple or int")
-            
         if isinstance(dilation, int):
             self.dilation = (dilation,dilation)
         elif isinstance(dilation, tuple):
             self.dilation = dilation
         else: 
-            raise Exception("Please enter dialtion parameters as tuple or int")    
+            raise Exception("Please enter dialtion parameters as tuple or int") 
+        
+        if isinstance(padding, int):
+            self.padding = (padding,padding)
+        elif isinstance(padding, tuple):
+            self.padding = padding
+        elif padding == 'same':
+            # OUT = [(IN−D(K-1)+2P-1)/S]+1
+            # SO, FOR OUT = IN WE NEED
+            # P = [S(IN-1)-IN+D(K-1)+1]/2
+            pad0 = (self.stride[0] * (self.in_channels - 1) - self.in_channels + self.dilation[0] * (self.kernel[0] - 1))//2
+            pad1 = (self.stride[1] * (self.in_channels - 1) - self.in_channels + self.dilation[1] * (self.kernel[1] - 1))//2
+            self.padding = (pad0, pad1)
+        elif padding == 'valid':
+            self.padding = (0, 0)
+        else: 
+            raise Exception("Please enter padding parameters as tuple or int, or a string in {\"same\", \"valid\"}")
             
         self.bias = bias
         self.w = torch.empty(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]).zero_()
@@ -191,7 +200,6 @@ class Conv2d(Module):
         """
         self.input = input_
         output = torch.empty(self.input.shape)
-        # we still need to handle the cases of padding = {'valid', 'same'}
         unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dilation, padding=self.padding, stride=self.stride)
         if self.bias:
             wxb = self.w.view(self.out_channels, -1) @ unfolded + self.b.view(1, -1, 1)
@@ -235,13 +243,13 @@ class NearestUpsampling(Upsampling):
         """
         Perform upsampling using nearest neighbor rule
         """
-        self.input = input_ #do we need this? I'm tired so I'm not understanding a lot rn :)
-        return self.input.repeat_interleave(self.scale_factor,3).repeat_interleave(self.scale_factor,2)
+        return input_.repeat_interleave(self.scale_factor,3).repeat_interleave(self.scale_factor,2)
     
     def backward(self, grad):
-        pass
+        # I think this works?
+        return grad.repeat_interleave(self.scale_factor,3).repeat_interleave(self.scale_factor,2)
 
-
+# We don't need this, it's transposed convolution OR nearest neighbor, right?
 class Upsampling(Module):
     def __init__(self, scale_factor):
         """
