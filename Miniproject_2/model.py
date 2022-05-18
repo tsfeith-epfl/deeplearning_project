@@ -23,9 +23,9 @@ class Module(object):
         raise NotImplementedError
     def param(self):
         return []
-    
+
 ## ACTIVATION FUNCTIONS
-    
+
 class ReLU(Module): 
     def forward(self, input_):
         """
@@ -147,33 +147,32 @@ class Conv2d(Module):
         Store the attributes and initialize the parameters and gradient tensors
         """
         self.in_channels = in_channels
-        
         self.out_channels = out_channels
         
-        if type(kernel_size) == int:
+        if isinstance(kernel_size, int):
             self.kernel_size = (kernel_size,kernel_size)
-        elif type(kernel_size) == tuple:
+        elif isinstance(kernel_size, tuple):
             self.kernel_size = kernel_size
         else: 
             raise Exception("Please enter kernel size parameters as tuple or int")
                 
-        if type(stride) == int:
+        if isinstance(stride, int):
             self.stride = (stride,stride)
-        elif type(stride) == tuple:
+        elif isinstance(stride, tuple):
             self.stride = stride
         else: 
             raise Exception("Please enter stride parameters as tuple or int")
             
-        if type(padding) == int:
+        if isinstance(padding, int):
             self.padding = (padding,padding)
-        elif type(padding) == tuple:
+        elif isinstance(padding, tuple):
             self.padding = padding
         else: 
             raise Exception("Please enter padding parameters as tuple or int")
             
-        if type(dilation) == int:
+        if isinstance(dilation, int):
             self.dilation = (dilation,dilation)
-        elif type(dilation) == tuple:
+        elif isinstance(dilation, tuple):
             self.dilation = dilation
         else: 
             raise Exception("Please enter dialtion parameters as tuple or int")    
@@ -192,8 +191,8 @@ class Conv2d(Module):
         """
         self.input = input_
         output = torch.empty(self.input.shape)
-        unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dilation
-                          , padding=self.padding, stride=self.stride)
+        # we still need to handle the cases of padding = {'valid', 'same'}
+        unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dilation, padding=self.padding, stride=self.stride)
         if self.bias:
             wxb = self.w.view(self.out_channels, -1) @ unfolded + self.b.view(1, -1, 1)
         else:
@@ -272,10 +271,6 @@ import torch
 import numpy as np
 x = torch.rand(2,3,4,4)
 x
-
-
-# We need to define the following modules: Conv2d, TransposeConv2d or
-# NearestUpsampling, ReLU, Sigmoid, MSE, SGD, Sequential
 
 class Model ():
     def __init__(self):
