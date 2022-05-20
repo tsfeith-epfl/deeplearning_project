@@ -68,7 +68,8 @@ class MSE(Module):
         """
         Mean Squared Error: MSE(x) = 1/N * (y - f(x))^2
         """
-        return sum([(self.targets[i] - self.predictions[i])**2 for i in range(self.size)]) / self.size
+        return ((self.targets - self.predictions)**2).sum()/self.size()
+        # return sum([(self.targets[i] - self.predictions[i])**2 for i in range(self.size)]) / self.size
     
     def backward(self):
         """
@@ -183,7 +184,7 @@ class Conv2d(Module):
             self.padding = (pad0, pad1)
         elif padding == 'valid':
             self.padding = (0, 0)
-        else: 
+        else:
             raise Exception("Please enter padding parameters as tuple or int, or a string in {\"same\", \"valid\"}")
             
         self.bias = bias
@@ -214,12 +215,12 @@ class Conv2d(Module):
     def backward(self, grad):
         """
         Compute gradients wrt parameters(w, b) and input(x)
-        dy/dw = conv(x, dL/dy)
-        dy/db = 
-        dy/dx = 
+        dL/dw = conv(x, dL/dy)
+        dL/db = eye(y.shape)
+        dL/dx = 
         """
         #is grad already a k[0] x k[1] tensor????
-        unfolded = unfold(self.input, kernel_size = self.kernel_size,  dilation=self.dialtion
+        unfolded = unfold(self.input, kernel_size = self.kernel_size,  dilation=self.dilation
                           , padding=self.padding, stride=self.stride)
         wxb = grad.view(self.out_channels, -1) @ unfolded + self.b.view(1, -1, 1)
         actual = wxb.view(1, self.out_channels,
@@ -227,7 +228,16 @@ class Conv2d(Module):
                           math.floor((input_.shape[3] + 2*self.padding[1] - self.dialtion[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
         self.grad_w.add_(actual)
         
+        # still need to do grad b
+        
         ###return dy/dx
+        unfolded = unfold(self.grad_w, kernel_size = self.kernel_size,  dilation=self.dilation
+                          , padding=self.padding, stride=self.stride)
+        wxb = grad.view(self.out_channels, -1) @ unfolded + self.b.view(1, -1, 1)
+        actual = wxb.view(1, self.out_channels,
+                          math.floor((input_.shape[2] + 2*self.padding[0] - self.dilation[0]*(self.kernel_size[0] - 1) - 1)/self.stride[0] + 1),
+                          math.floor((input_.shape[3] + 2*self.padding[1] - self.dialtion[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
+        self.grad_w.add_(actual)
 
 
 # -
