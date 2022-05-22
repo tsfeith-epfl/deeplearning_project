@@ -187,7 +187,7 @@ class Conv2d(Module):
             raise Exception("Please enter padding parameters as tuple or int, or a string in {\"same\", \"valid\"}")
             
         self.bias = bias
-        self.w = torch.empty(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]).zero_()
+        self.w = torch.empty(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]).zero_() +1
         self.grad_w = torch.empty(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]).zero_()
         
         if self.bias:
@@ -232,23 +232,6 @@ class Conv2d(Module):
 
 # -
 
-class NearestUpsampling(Upsampling):
-    def __init__(self, scale_factor):
-        """
-        Store the attributes
-        """
-        super().__init__(scale_factor)
-
-    def forward(self, input_):
-        """
-        Perform upsampling using nearest neighbor rule
-        """
-        return input_.repeat_interleave(self.scale_factor,3).repeat_interleave(self.scale_factor,2)
-    
-    def backward(self, grad):
-        # I think this works?
-        return grad.repeat_interleave(self.scale_factor,3).repeat_interleave(self.scale_factor,2)
-
 # We don't need this, it's transposed convolution OR nearest neighbor, right?
 class Upsampling(Module):
     def __init__(self, scale_factor):
@@ -272,6 +255,31 @@ class Upsampling(Module):
     def backward(self, grad):
         pass
 
+
+class NearestUpsampling(Upsampling):
+    def __init__(self, scale_factor):
+        """
+        Store the attributes
+        """
+        super().__init__(scale_factor)
+
+    def forward(self, input_):
+        """
+        Perform upsampling using nearest neighbor rule
+        """
+        return input_.repeat_interleave(self.scale_factor,3).repeat_interleave(self.scale_factor,2)
+    
+    def backward(self, grad):
+        """
+        Convolve the gradient with a filter of ones to return the correct value
+        """
+        self.filter_ones = torch.empty(self.scale_factor**2, dtype = float).zero_() + 1
+        unfolded = unfold(grad, kernel_size = self.scale_factor,
+                          stride=self.scale_factor).view(grad.shape[0], grad.shape[1], self.scale_factor*self.scale_factor,
+                                                         grad.shape[2]//self.scale_factor*grad.shape[3]//self.scale_factor)
+        wxb = self.filter_ones@unfolded
+        actual = wxb.view(grad.shape[0], grad.shape[1], grad.shape[2]//self.scale_factor,grad.shape[3]//self.scale_factor)
+        return actual
 
 # Working space below
 
