@@ -161,7 +161,6 @@ class Model(nn.Module):
         for e in range(epochs):
             epoch_loss = 0
             for b in range(0, train_input.size(0), self.mini_batch_size):
-                print(b)
                 self.optimizer.zero_grad()
                 train = train_input.narrow(0, b, self.mini_batch_size)
                 target = train_target.narrow(0, b, self.mini_batch_size)

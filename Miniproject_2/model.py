@@ -12,17 +12,16 @@ torch.set_grad_enabled(False)
 #             Upsampling,
 #             Sigmoid)
 
-
-# +
 # Suggested structure
 # HOWEVER GRADING WILL REWARD ORIGINALITY
-class Module(object):
-    def forward(self, *args):
-        raise NotImplementedError
-    def backward(self, *gradwrtoutput):
-        raise NotImplementedError
-    def param(self):
-        return []
+
+# class Module(object):
+#     def forward(self, *args):
+#         raise NotImplementedError
+#     def backward(self, *gradwrtoutput):
+#         raise NotImplementedError
+#     def param(self):
+#         return []
 
 ## ACTIVATION FUNCTIONS
 
@@ -68,15 +67,15 @@ class MSE(Module):
         """
         Mean Squared Error: MSE(x) = 1/N * (y - f(x))^2
         """
-        return ((self.targets - self.predictions)**2).sum()/self.size()
+        return ((self.targets - self.predictions)**2).sum()/self.sizeS
         # return sum([(self.targets[i] - self.predictions[i])**2 for i in range(self.size)]) / self.size
     
     def backward(self):
         """
         Derivative of MSE = -2/N * (y - f(x))
         """
-        return -2*sum([(self.targets[i] - self.predictions[i]) for i in range(self.size)]) / self.size
-
+        return -2*(self.targets - self.predictions).sum()/self.size
+        # return -2*sum([(self.targets[i] - self.predictions[i]) for i in range(self.size)]) / self.size
 
 # -
 
@@ -96,6 +95,12 @@ class SGD():
         Perform one step of Stochastig Gradient Descnet
         """
         for p, grad in self.params: p -= lr*grad
+        
+    def zero_grad(self):
+        """
+        Zero all the gradients.
+        """
+        for p, grad in self.params: grad = 0
 
 
 class Sequential(Module): #I may need also functions 
@@ -127,7 +132,7 @@ class Sequential(Module): #I may need also functions
             
         return grad
 
-    def param(self):
+    def params(self):
         """
         Gather the new parameters
         """
@@ -228,16 +233,29 @@ class Conv2d(Module):
                           math.floor((input_.shape[3] + 2*self.padding[1] - self.dialtion[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
         self.grad_w.add_(actual)
         
-        # still need to do grad b
+        # dL/db (I think this is correct, right?)
+        self.grad_b.add_(torch.empty(self.b.shape)).ones_()
         
-        ###return dy/dx
-        unfolded = unfold(self.grad_w, kernel_size = self.kernel_size,  dilation=self.dilation
-                          , padding=self.padding, stride=self.stride)
-        wxb = grad.view(self.out_channels, -1) @ unfolded + self.b.view(1, -1, 1)
-        actual = wxb.view(1, self.out_channels,
+        ###return dL/dx
+        # dL/ds = grad
+        # dL/dx = dL/ds * ds/dx
+        
+        temp_obj = torch.empty(()).zeros_()
+        
+        
+        output = torch.empty(self.input.shape)
+        unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dilation, padding=self.padding, stride=self.stride)
+        if self.bias:
+            wxb = self.w.view(self.out_channels, -1) @ unfolded + self.b.view(1, -1, 1)
+        else:
+            wxb = self.w.view(self.out_channels, -1) @ unfolded
+
+        actual = wxb.view(input_.shape[0], self.out_channels,
                           math.floor((input_.shape[2] + 2*self.padding[0] - self.dilation[0]*(self.kernel_size[0] - 1) - 1)/self.stride[0] + 1),
-                          math.floor((input_.shape[3] + 2*self.padding[1] - self.dialtion[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
-        self.grad_w.add_(actual)
+                          math.floor((input_.shape[3] + 2*self.padding[1] - self.dilation[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
+        
+        dLdx = temp.view(input_.shape[0], self.in_channels, input_.shape[2], input_.shape[3])
+        return dLdx
 
 
 # -
@@ -299,19 +317,40 @@ class Model ():
         -------
         None
         """
-        pass
+        
+        self.model = Sequential(Conv2d(stride=2),
+                                ReLU,
+                                Conv2d(stride=2),
+                                ReLU,
+                                Upsampling(scale_factor=2),
+                                ReLU,
+                                Upsampling(scale_factor=2),
+                                Sigmoid)
+        self.optimizer = SGD(self.model.params, 1e-3)
+        self.criterion = MSE()
+        
+        self.mini_batch_size = 625
+        
+            
+        # STILL NEED TO DO FUNCTION TO INITIALIZE WEIGHTS
+        # Initialize weights
+        self.model._init_weights()
 
     def load_pretrained_model(self):
         """
-        This loads the parameters saved in bestmodel .pth into the model.
+        This loads the parameters saved in bestmodel.pth into the model.
 
         Returns
         -------
         None
         """
-        pass
+        best_state_dict = torch.load('bestmodel.pth', map_location='cpu')
+        self.load_state_dict(best_state_dict)
 
-    def train(self, train_input, train_target):
+    def train(self,
+              train_input,
+              train_target,
+              epochs):
         """
         Train the model.
 
@@ -327,8 +366,20 @@ class Model ():
         -------
         None
         """
-
-        pass
+        print('\nTRAINING STARTING...')
+        for e in range(epochs):
+            epoch_loss = 0
+            for b in range(0, train_input.size(0), self.mini_batch_size):
+                self.optimizer.zero_grad()
+                train = train_input.narrow(0, b, self.mini_batch_size)
+                target = train_target.narrow(0, b, self.mini_batch_size)
+                train, target = data_augmentations(train, target, use_crops = use_crops, n_local_crops = n_local_crops)
+                output = self.mode.forward(train, sharpen, sharpen_factor)
+                loss = self.criterion(output, target)
+                epoch_loss += loss.item()/n_samples
+                loss.backward()
+                self.optimizer.step()
+            print(f"Epoch {e+1}: Loss = {epoch_loss};")
 
     def predict(self, test_input):
         """
@@ -344,7 +395,5 @@ class Model ():
         -------
         denoised_signal: torch.Tensor
             Tensor of size (N1, C, H, W) containing the denoised signal.
-
         """
-
-        pass
+        return self.forward(test_input)
