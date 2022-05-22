@@ -2,7 +2,6 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 import torchvision.transforms.functional as F1
-from torch.optim.lr_scheduler import StepLR
 from torch import optim
 from torchvision import transforms
 import random
@@ -20,6 +19,7 @@ class Model(nn.Module):
         """
         super(Model, self).__init__()
 
+        # Use a standard U-Net with Transposed Convolutions on the decoder branch
         self.enc_conv0 = nn.Conv2d(3, 48, kernel_size=3, padding='same')
         self.enc_conv1 = nn.Conv2d(48, 48, kernel_size=3, padding='same')
         self.pool1 = nn.MaxPool2d(kernel_size=2)
@@ -52,6 +52,7 @@ class Model(nn.Module):
         self.criterion = nn.MSELoss()
         self.optimizer = optim.Adam(self.parameters(), lr = 1e-3)
 
+        # Mini-Batch found to be empirically the best
         self.mini_batch_size = 625
         
         # Initialize weights
@@ -67,7 +68,10 @@ class Model(nn.Module):
                     
     def forward(self, x, sharpen = True, sharp_factor = 1.):
         
+        # add skip connections
         skip_connects = [x]
+        
+        # negative slope for leaky ReLU following original paper
         x = F.leaky_relu(self.enc_conv0(x), negative_slope = 0.1)
         x = F.leaky_relu(self.enc_conv1(x), negative_slope = 0.1)
         x = self.pool1(x)
@@ -117,6 +121,7 @@ class Model(nn.Module):
 
         x = F.relu(self.dec_conv1(x))
         
+        # application of explicit sharpening operator
         if sharpen:
             x = F.relu(x + sharp_factor*(x - F1.gaussian_blur(x, 3)))
 
@@ -151,6 +156,18 @@ class Model(nn.Module):
         train_target : torch.Tensor
             Tensor of size (N, C, H, W) containing another noisy version of the
             same images
+        epochs : int
+            Number of epochs to use for training
+        use_crops : bool
+            Whether or not to use (local and global) crops as part of the data
+            augmentation strategy.
+        n_local_crops : int
+            Number of local crops to use. Only relevant if use_crops = True
+        sharpen : bool
+            Whether or not to apply the explicit sharpening operator
+        sharpen_factor : float
+            Sharpening factor to apply as the last step of the networ. Only 
+            relevant if sharpen = True
 
         Returns
         -------
@@ -181,6 +198,11 @@ class Model(nn.Module):
         test_input : torch.Tensor
             Tensor of size (N1, C, H, W) that has to be denoised by the trained
             or loaded network.
+        sharpen : bool
+            Whether or not to apply the explicit sharpening operator
+        sharpen_factor : float
+            Sharpening factor to apply as the last step of the networ. Only 
+            relevant if sharpen = True
 
         Returns
         -------
@@ -198,6 +220,8 @@ def data_augmentations(imgs_1,
                        n_local_crops = 2):
     H, W = imgs_1.shape[-2], imgs_1.shape[-1]
     
+    # By default flips and gaussian noise are always applied
+    # Crops may or may not be used
     if use_crops:
         global_augs = transforms.Compose([transforms.RandomHorizontalFlip(p=hflip_prob),
                                           transforms.RandomVerticalFlip(p=vflip_prob),
@@ -242,16 +266,15 @@ def psnr(denoised, ground_truth):
     ----------
     denoised : torch.Tensor
         Tensor of size (N1, C, H, W) containing the denoised signal resulting
-        from the model. Must have range [0, 1].
+        from the model.
 
     ground_truth : torch.Tensor
-        Tensor of size (N1, C, H, W) containing the true denoised signal. Must
-        have range [0, 1].
+        Tensor of size (N1, C, H, W) containing the true denoised signal.
 
     Returns
     -------
     psnr : float
-        Value of peak signal to noise ratio.
+        Value of PSNR.
 
     """ 
     mse = torch.mean((denoised-ground_truth)**2)
