@@ -172,7 +172,7 @@ class Conv2d(Module):
         elif isinstance(dilation, tuple):
             self.dilation = dilation
         else: 
-            raise Exception("Please enter dialtion parameters as tuple or int") 
+            raise Exception("Please enter dilation parameters as tuple or int") 
         
         if isinstance(padding, int):
             self.padding = (padding,padding)
@@ -204,7 +204,7 @@ class Conv2d(Module):
         """
         self.input = input_
         self.output_shape = (math.floor((input_.shape[2] + 2*self.padding[0] - self.dilation[0]*(self.kernel_size[0] - 1) - 1)/self.stride[0] + 1),
-                             math.floor((input_.shape[3] + 2*self.padding[1] - self.dialtion[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
+                             math.floor((input_.shape[3] + 2*self.padding[1] - self.dilation[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
         output = torch.empty(self.input.shape)
         unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dilation, padding=self.padding, stride=self.stride)
         if self.bias:
