@@ -48,17 +48,23 @@ class Sigmoid(Module):
         """
         Sigmoid(x) = 1/(1+e^(-x))
         """
-        copy = input_.detach().clone()
-        return copy.apply_(lambda x: 1/(1+math.exp(-x)))
+        return 1 / (1 + input_.exp())
     
     def backward(self, gradwrtoutput):
         """
         Derivative of sigmoid: dsig(x)/dx = sig(x)(1-sig(x))
         """
+<<<<<<< Updated upstream
         copy = gradwrtoutput.detach().clone()
         return copy.apply_(lambda x: forward(x)*(1-forward(x)))
 
 # # LOSS FUNCTIONS
+=======
+        temp = input_.exp()
+        return 1 / (1 + temp) * (1- 1 / (1 + temp))
+    
+## LOSS FUNCTIONS
+>>>>>>> Stashed changes
 
 class MSE(Module):
     def __init__(self, predictions, targets):
@@ -69,16 +75,14 @@ class MSE(Module):
         """
         Mean Squared Error: MSE(x) = 1/N * (y - f(x))^2
         """
-        return ((self.targets - self.predictions)**2).sum()/self.sizeS
-        # return sum([(self.targets[i] - self.predictions[i])**2 for i in range(self.size)]) / self.size
-    
+        return ((self.targets - self.predictions)**2).sum()/self.size
+        
     def backward(self):
         """
         Derivative of MSE = -2/N * (y - f(x))
         """
         return -2*(self.targets - self.predictions).sum()/self.size
-        # return -2*sum([(self.targets[i] - self.predictions[i]) for i in range(self.size)]) / self.size
-
+        
 # -
 
 class SGD():
@@ -134,7 +138,7 @@ class Sequential(Module): #I may need also functions
             
         return grad
 
-    def params(self):
+    def param(self):
         """
         Gather the new parameters
         """
@@ -193,9 +197,9 @@ class Conv2d(Module):
             self.padding = (0, 0)
         else:
             raise Exception("Please enter padding parameters as tuple or int, or a string in {\"same\", \"valid\"}")
-            
+
         self.bias = bias
-        self.w = torch.empty(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]).zero_() +1
+        self.w = torch.empty(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]).normal_()
         self.grad_w = torch.empty(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]).zero_()
         
         if self.bias:
@@ -207,6 +211,8 @@ class Conv2d(Module):
         Perform convolution as a linear transformation
         """
         self.input = input_
+        self.output_shape = (math.floor((input_.shape[2] + 2*self.padding[0] - self.dilation[0]*(self.kernel_size[0] - 1) - 1)/self.stride[0] + 1),
+                             math.floor((input_.shape[3] + 2*self.padding[1] - self.dialtion[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
         output = torch.empty(self.input.shape)
         unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dilation, padding=self.padding, stride=self.stride)
         if self.bias:
@@ -214,9 +220,7 @@ class Conv2d(Module):
         else:
             wxb = self.w.view(self.out_channels, -1).double() @ unfolded
 
-        actual = wxb.view(input_.shape[0], self.out_channels,
-                          math.floor((input_.shape[2] + 2*self.padding[0] - self.dilation[0]*(self.kernel_size[0] - 1) - 1)/self.stride[0] + 1),
-                          math.floor((input_.shape[3] + 2*self.padding[1] - self.dilation[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
+        actual = wxb.view(input_.shape[0], self.out_channels, self.output_shape[0], self.output_shape[1])
         return actual
         
     def backward(self, grad):
@@ -226,6 +230,7 @@ class Conv2d(Module):
         dL/db = eye(y.shape)
         dL/dx = 
         """
+<<<<<<< Updated upstream
         # still not working
         self.grad = grad
         unfolded = unfold(self.input, kernel_size = self.kernel_size)#,  dilation=self.dilation
@@ -234,28 +239,74 @@ class Conv2d(Module):
         actual = wxb.view(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1])
         self.grad_w.add_(actual.mean(dim = 0))
         
+=======
+        #is grad already a k[0] x k[1] tensor????
+
+        unfolded = unfold(self.input, kernel_size = self.kernel_size,  dilation=self.dilation
+                          , padding=self.padding, stride=self.stride)
+        wxb = grad.view(self.out_channels, -1) @ unfolded + self.b.view(1, -1, 1)
+        actual = wxb.view(1, self.out_channels, self.output_shape[0], self.output_shape[1])
+        self.grad_w.add_(actual)
+
+>>>>>>> Stashed changes
         # dL/db (I think this is correct, right?)
-        self.grad_b.add_(torch.empty(self.b.shape)).ones_()
-        
+        self.grad_b.add_(torch.empty(self.b.shape)).zero_() + 1
+
         ###return dL/dx
         # dL/ds = grad
         # dL/dx = dL/ds * ds/dx
-        
-        temp_obj = torch.empty(()).zeros_()
-        
-        
-        output = torch.empty(self.input.shape)
-        unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dilation, padding=self.padding, stride=self.stride)
-        if self.bias:
-            wxb = self.w.view(self.out_channels, -1) @ unfolded + self.b.view(1, -1, 1)
-        else:
-            wxb = self.w.view(self.out_channels, -1) @ unfolded
 
-        actual = wxb.view(input_.shape[0], self.out_channels,
-                          math.floor((input_.shape[2] + 2*self.padding[0] - self.dilation[0]*(self.kernel_size[0] - 1) - 1)/self.stride[0] + 1),
-                          math.floor((input_.shape[3] + 2*self.padding[1] - self.dilation[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
-        
-        dLdx = temp.view(input_.shape[0], self.in_channels, input_.shape[2], input_.shape[3])
+        # First attempt, with dilation = 1.
+
+        #mirror_kernel = self.weight.flip([2,3])
+
+        #zeros = torch.empty(self.input.shape[0], self.out_channels, ).zero_()
+
+        #grad_unfold = unfold(grad, (self.kernel_size[1], self.kernel_size[0])
+
+        #grad_unfold = unfold(grad, (self.kernel_size[1], self.kernel_size[0]))
+        #grad_unfold = grad_unfold.transpose(1,2).matmul(mirror_kernel.view(mirror_kernel.shape[0], -1).t()).transpose(1,2)
+        #grad_unfold = grad_unfold.view(self.input.shape)
+
+        # Convolution is equivalent with Unfold + Matrix Multiplication + Fold (or view to output shape)
+        #inp = torch.randn(1, 3, 10, 12)
+        #w = torch.randn(2, 3, 4, 5)
+        #inp_unf = torch.nn.functional.unfold(inp, (4, 5))
+        #out_unf = inp_unf.transpose(1, 2).matmul(w.view(w.size(0), -1).t()).transpose(1, 2)
+        #out = torch.nn.functional.fold(out_unf, (7, 8), (1, 1))
+        # or equivalently (and avoiding a copy),
+        # out = out_unf.view(1, 2, 7, 8)        
+
+
+        # unstride the output gradient
+
+        # second index of zeros is output channels
+        x, y = output_gradient.size()[-2:]
+        zeros = torch.empty(self.input.size(0),self.out_channel, (x-1)*(self.stride-1)+x, y+(y-1)*(self.stride-1)).zero_()
+        zeros[:,:,::self.stride,::self.stride] = output_gradient
+
+        self.unstrided_gradient = zeros
+        print('self.unstrided_gradient.size()', self.unstrided_gradient.size())
+
+
+        unfolded = unfold(self.unstrided_gradient,
+                          kernel_size = (self.kernel_size,self.kernel_size),
+                          stride = 1,
+                          padding = (self.kernel_size[0] - 1, self.kernel_size[1] - 1))
+        print(unfolded)
+        print('unfolded.size()', unfolded.size())
+
+        lhs = self.kernel_flipped.view(self.in_channel, self.kernel_size[0] * self.kernel_size[1] * self.out_channel)
+        print('lhs.size()', lhs.size())
+        self.input_grad = lhs @ unfolded
+
+        self.input_grad = self.input_grad.view(self.input.shape)
+        print(self.input_grad.size())
+
+        return self.input_grad
+
+
+
         return dLdx
 
 
