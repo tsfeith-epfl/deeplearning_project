@@ -2,6 +2,7 @@ import math
 import torch
 torch.set_grad_enabled(False)
 
+
 # we want to build the following model
 # Sequential (Conv(stride 2),
 #             ReLU,
@@ -15,15 +16,16 @@ torch.set_grad_enabled(False)
 # Suggested structure
 # HOWEVER GRADING WILL REWARD ORIGINALITY
 
-# class Module(object):
-#     def forward(self, *args):
-#         raise NotImplementedError
-#     def backward(self, *gradwrtoutput):
-#         raise NotImplementedError
-#     def param(self):
-#         return []
+class Module(object):
+    def forward(self, *args):
+        raise NotImplementedError
+    def backward(self, *gradwrtoutput):
+        raise NotImplementedError
+    def param(self):
+        return []
 
-## ACTIVATION FUNCTIONS
+
+# # ACTIVATION FUNCTIONS
 
 class ReLU(Module): 
     def forward(self, input_):
@@ -40,7 +42,7 @@ class ReLU(Module):
         zeros = torch.empty(gradwrtoutput.shape).zero_() 
         zeros[gradwrtoutput > zeros] = 1
         return zeros
-    
+
 class Sigmoid(Module):
     def forward(self, input_):
         """
@@ -55,8 +57,8 @@ class Sigmoid(Module):
         """
         copy = gradwrtoutput.detach().clone()
         return copy.apply_(lambda x: forward(x)*(1-forward(x)))
-    
-## LOSS FUNCTIONS
+
+# # LOSS FUNCTIONS
 
 class MSE(Module):
     def __init__(self, predictions, targets):
@@ -208,9 +210,9 @@ class Conv2d(Module):
         output = torch.empty(self.input.shape)
         unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dilation, padding=self.padding, stride=self.stride)
         if self.bias:
-            wxb = self.w.view(self.out_channels, -1) @ unfolded + self.b.view(1, -1, 1)
+            wxb = self.w.view(self.out_channels, -1).double() @ unfolded + self.b.view(1, -1, 1) #added .double
         else:
-            wxb = self.w.view(self.out_channels, -1) @ unfolded
+            wxb = self.w.view(self.out_channels, -1).double() @ unfolded
 
         actual = wxb.view(input_.shape[0], self.out_channels,
                           math.floor((input_.shape[2] + 2*self.padding[0] - self.dilation[0]*(self.kernel_size[0] - 1) - 1)/self.stride[0] + 1),
@@ -224,14 +226,13 @@ class Conv2d(Module):
         dL/db = eye(y.shape)
         dL/dx = 
         """
-        #is grad already a k[0] x k[1] tensor????
-        unfolded = unfold(self.input, kernel_size = self.kernel_size,  dilation=self.dilation
-                          , padding=self.padding, stride=self.stride)
-        wxb = grad.view(self.out_channels, -1) @ unfolded + self.b.view(1, -1, 1)
-        actual = wxb.view(1, self.out_channels,
-                          math.floor((input_.shape[2] + 2*self.padding[0] - self.dilation[0]*(self.kernel_size[0] - 1) - 1)/self.stride[0] + 1),
-                          math.floor((input_.shape[3] + 2*self.padding[1] - self.dialtion[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
-        self.grad_w.add_(actual)
+        # still not working
+        self.grad = grad
+        unfolded = unfold(self.input, kernel_size = self.kernel_size)#,  dilation=self.dilation
+                         # , padding=self.padding, stride=self.stride)
+        wxb = grad.view(self.out_channels, -1) @ unfolded
+        actual = wxb.view(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1])
+        self.grad_w.add_(actual.mean(dim = 0))
         
         # dL/db (I think this is correct, right?)
         self.grad_b.add_(torch.empty(self.b.shape)).ones_()
@@ -260,7 +261,6 @@ class Conv2d(Module):
 
 # -
 
-# We don't need this, it's transposed convolution OR nearest neighbor, right?
 class Upsampling(Module):
     def __init__(self, scale_factor):
         """
@@ -272,8 +272,8 @@ class Upsampling(Module):
         """
         perform upsampling using nearest neighbor rule and then convolution, to have a transposed convolution
         """
-        self.input = input_ #same as above
-        self.in_channels = input_.shape[1] #[1] if we have more images
+        self.input = input_ 
+        self.in_channels = input_.shape[1]
         self.out_channels = self.in_channels
         kernel_size = (self.scale_factor, self.scale_factor)
         conv = Conv2d(self.in_channels, self.out_channels, kernel_size=kernel_size, stride = self.scale_factor)
