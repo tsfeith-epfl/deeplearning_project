@@ -54,17 +54,9 @@ class Sigmoid(Module):
         """
         Derivative of sigmoid: dsig(x)/dx = sig(x)(1-sig(x))
         """
-<<<<<<< Updated upstream
-        copy = gradwrtoutput.detach().clone()
-        return copy.apply_(lambda x: forward(x)*(1-forward(x)))
-
-# # LOSS FUNCTIONS
-=======
-        temp = input_.exp()
-        return 1 / (1 + temp) * (1- 1 / (1 + temp))
-    
+        return 1 / (1 + gradwrtoutput.exp()) * (1 - 1 / (1 + gradwrtoutput.exp()))
+       
 ## LOSS FUNCTIONS
->>>>>>> Stashed changes
 
 class MSE(Module):
     def __init__(self, predictions, targets):
@@ -230,7 +222,6 @@ class Conv2d(Module):
         dL/db = eye(y.shape)
         dL/dx = 
         """
-<<<<<<< Updated upstream
         # still not working
         self.grad = grad
         unfolded = unfold(self.input, kernel_size = self.kernel_size)#,  dilation=self.dilation
@@ -239,16 +230,7 @@ class Conv2d(Module):
         actual = wxb.view(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1])
         self.grad_w.add_(actual.mean(dim = 0))
         
-=======
-        #is grad already a k[0] x k[1] tensor????
 
-        unfolded = unfold(self.input, kernel_size = self.kernel_size,  dilation=self.dilation
-                          , padding=self.padding, stride=self.stride)
-        wxb = grad.view(self.out_channels, -1) @ unfolded + self.b.view(1, -1, 1)
-        actual = wxb.view(1, self.out_channels, self.output_shape[0], self.output_shape[1])
-        self.grad_w.add_(actual)
-
->>>>>>> Stashed changes
         # dL/db (I think this is correct, right?)
         self.grad_b.add_(torch.empty(self.b.shape)).zero_() + 1
 
