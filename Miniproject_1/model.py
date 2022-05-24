@@ -307,5 +307,5 @@ if __name__ == '__main__':
     model.load_pretrained_model()
     # model.train(noisy_imgs_1, noisy_imgs_2, 60)
 
-    output = model.forward(noisy_imgs)
+    output = model.predict(noisy_imgs)
     print(f'PSNR: {psnr(output/255, clean_imgs/255)} dB')
