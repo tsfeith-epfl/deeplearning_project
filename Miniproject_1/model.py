@@ -124,6 +124,8 @@ class Model(nn.Module):
         # application of explicit sharpening operator
         if sharpen:
             x = F.relu(x + sharp_factor*(x - F1.gaussian_blur(x, 3)))
+        
+        x = x - F.relu(x - 255)
 
         return x
 
