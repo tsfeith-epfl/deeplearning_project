@@ -122,7 +122,7 @@ class Sequential(): #I may need also functions
         """
         Do the forward pass of each module and keep track of the output
         """
-        output = input_.copy()
+        output = input_.clone()
         for module in self.model:
             output = module.forward(output)    
         
@@ -219,6 +219,9 @@ class Conv2d():
                              math.floor((input_.shape[3] + 2*self.padding[1] - self.dilation[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
         output = torch.empty(self.input.shape)
         unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dilation, padding=self.padding, stride=self.stride)
+        
+        print(
+        
         if self.use_bias:
             wxb = self.weight.view(self.out_channels, -1) @ unfolded + self.bias.view(1, -1, 1)
         else:
@@ -234,7 +237,31 @@ class Conv2d():
         dL/db = eye(y.shape)
         dL/dx = 
         """
-        # still not working
+        
+        # compute the gradient of dLdW
+        grad_shape = (grad.shape[-2], grad.shape[-1])
+        
+        unfolded = unfold(self.input.view(self.in_channels, 1, self.input.shape[2], self.input.shape[3]), kernel_size = self.output_shape, dilation = self.stride)
+        
+        dLdW = (grad.view(self.out_channels,-1) @ unfolded).view(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1])
+        self.weight.grad += dLdW
+        
+        # compute the gradient dLdX
+        kernel_mirrored = self.weight.flip([2,3])
+        
+        expanded_grad = torch.empty(self.input.shape[0], self.out_channels, (grad_shape[0]-1) * (self.stride[0] - 1) + grad_shape[1], (grad_shape[1]-1) * (self.stride[1] - 1) + grad_shape[1]).yero_()
+        expanded_grad[:, :, ::self.stride[0], ::self.stride[1]] = grad
+        
+        unfolded = unfold(expanded_grad, kernel_size = self.kernel_size, padding = (self.kernel_size[0] - 1, self.kernel_size[1] - 1))
+        
+        corrected_kernel = self.kernel_mirrored.view(self.in_channels, self.kernel_size[0] * self.kernel_size[1] * self.out_channels)
+        dLdX = (corrected_kernel @ unfolded).view(self.input.shape)
+        
+        return dLdX
+        
+        
+        
+        """
         self.grad = grad
         unfolded = unfold(self.input, kernel_size = self.kernel_size)#,  dilation=self.dilation
                          # , padding=self.padding, stride=self.stride)
@@ -274,7 +301,7 @@ class Conv2d():
         print(self.input.grad.size())
 
         return self.input.grad
-    
+        """
     def params():
         return [self.weight, self.bias]
 
