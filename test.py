@@ -117,11 +117,11 @@ class Tests(unittest.TestCase):
         print(f"[PSNR {project_number}: {output_psnr:.2f} dB]")
 
 
-    #def test_train_model(self):
-    #    title("Testing model training")
-    #    for i in [1,2]:
-    #        with self.subTest(f"Testing model training for project {i}"):
-    #            self._test_train_model(i)
+    def test_train_model(self):
+        title("Testing model training")
+        for i in [1,2]:
+            with self.subTest(f"Testing model training for project {i}"):
+                self._test_train_model(i)
 
     def _test_train_model(self, project_number):
         Model = importlib.import_module(f"Miniproject_{project_number}.model").Model

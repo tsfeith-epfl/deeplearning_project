@@ -56,6 +56,7 @@ class Model(nn.Module):
         self.mini_batch_size = 625
         
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.to(self.device)
         
         # Initialize weights
         self._init_weights()
@@ -128,12 +129,6 @@ class Model(nn.Module):
             x = F.relu(x + sharp_factor*(x - F1.gaussian_blur(x, 3)))
         
         x = x - F.relu(x - 255)
-
-        x = x / torch.max(x) * 255
-            
-        # x = torch.min(torch.full(x.shape, 255), x)
-        print(torch.max(x))
-        print(torch.min(x))
         
         return x
 
@@ -149,6 +144,7 @@ class Model(nn.Module):
         model_path = Path(__file__).parent / "bestmodel.pth"
         model = torch.load(model_path, map_location='cpu')
         self.load_state_dict(model)
+        self.to(self.device)
 
     def train(self,
               train_input,
@@ -189,7 +185,7 @@ class Model(nn.Module):
         train_input = train_input.to(torch.float)
         train_target = train_target.to(torch.float)
         train_input = train_input.to(self.device)
-        test_input = test_input.to(self.device)
+        train_target = train_target.to(self.device)
         train_input.requires_grad_()
         train_target.requires_grad_()
         
@@ -300,6 +296,9 @@ def psnr(denoised, ground_truth):
         Value of PSNR.
 
     """ 
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    ground_truth = ground_truth.to(device)
+    denoise = denoised.to(device)
     mse = torch.mean((denoised-ground_truth)**2)
     psnr = 20*torch.log10(torch.max(denoised)) - 10*torch.log10(mse+10**-8)
     return psnr

@@ -15,7 +15,7 @@ torch.set_grad_enabled(False)
 
 # Suggested structure
 # HOWEVER GRADING WILL REWARD ORIGINALITY
-
+"""
 class Module(object):
     def forward(self, *args):
         raise NotImplementedError
@@ -23,11 +23,11 @@ class Module(object):
         raise NotImplementedError
     def param(self):
         return []
+"""
 
+# ACTIVATION FUNCTIONS
 
-# # ACTIVATION FUNCTIONS
-
-class ReLU(Module): 
+class ReLU():
     def forward(self, input_):
         """
         ReLU(x) = max(0, x): returns the max between 0 and the input
@@ -43,24 +43,30 @@ class ReLU(Module):
         zeros[gradwrtoutput > zeros] = 1
         return zeros
 
-class Sigmoid(Module):
+    def params():
+        return []
+    
+class Sigmoid():
     def forward(self, input_):
         """
         Sigmoid(x) = 1/(1+e^(-x))
         """
-        return 1 / (1 + input_.exp())
+        return 1 / (1 + (-input_).exp())
     
     def backward(self, gradwrtoutput):
         """
         Derivative of sigmoid: dsig(x)/dx = sig(x)(1-sig(x))
         """
         return 1 / (1 + gradwrtoutput.exp()) * (1 - 1 / (1 + gradwrtoutput.exp()))
+    
+    def params():
+        return []
        
 ## LOSS FUNCTIONS
 
-class MSE(Module):
+class MSE():
     def __init__(self):
-    
+        pass
     def forward(self, predictions, targets):
         """
         Mean Squared Error: MSE(x) = 1/N * (y - f(x))^2
@@ -93,16 +99,16 @@ class SGD():
         """
         Perform one step of Stochastig Gradient Descnet
         """
-        for p, grad in self.params: p -= lr*grad
+        for p in self.params: p -= lr*p.grad
         
     def zero_grad(self):
         """
         Zero all the gradients.
         """
-        for p, grad in self.params: grad = 0
+        for p in self.params: p.grad = 0
 
 
-class Sequential(Module): #I may need also functions 
+class Sequential(): #I may need also functions 
     
     def __init__(self, *args):
         """
@@ -116,9 +122,10 @@ class Sequential(Module): #I may need also functions
         """
         Do the forward pass of each module and keep track of the output
         """
-        output = self.model[0].forward(input_)
-        for i in range(1, len(self.model)):
-            output = self.model[i].forward(output)
+        output = input_.copy()
+        for module in self.model:
+            output = module.forward(output)    
+        
         return output
     
     def backward(self, gradwrtoutput):
@@ -131,22 +138,26 @@ class Sequential(Module): #I may need also functions
             
         return grad
 
-    def param(self):
+    def params(self):
         """
         Gather the new parameters
         """
         params = []
         for module in self.model:
-            params.append(module.param())
+            for param in module.params():
+                params.append(param)
             
         return params
+    
+    def modules(self):
+        return self.model
 
 
 # +
 from torch.nn.functional import fold, unfold
 ##ADD weights initialization
 
-class Conv2d(Module):
+class Conv2d():
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, bias = True):
         """
         Store the attributes and initialize the parameters and gradient tensors
@@ -193,12 +204,12 @@ class Conv2d(Module):
 
         self.use_bias = bias
         self.weight = torch.empty(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]).normal_()
-        self.grad_w = torch.empty(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]).zero_()
+        self.weight.grad = torch.empty(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]).zero_()
         
         if self.use_bias:
             self.bias = torch.empty(self.in_channels, self.out_channels, 1).zero_()
-            self.grad_b = torch.empty(self.in_channels, self.out_channels, 1).zero_()  
-
+            self.bias.grad = torch.empty(self.in_channels, self.out_channels, 1).zero_()  
+            
     def forward(self, input_):
         """
         Perform convolution as a linear transformation
@@ -209,7 +220,7 @@ class Conv2d(Module):
         output = torch.empty(self.input.shape)
         unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dilation, padding=self.padding, stride=self.stride)
         if self.use_bias:
-            wxb = self.weight.view(self.out_channels, -1) @ unfolded + self.bias.view(1, -1, 1) #added .double
+            wxb = self.weight.view(self.out_channels, -1) @ unfolded + self.bias.view(1, -1, 1)
         else:
             wxb = self.weight.view(self.out_channels, -1) @ unfolded
 
@@ -229,37 +240,13 @@ class Conv2d(Module):
                          # , padding=self.padding, stride=self.stride)
         wxb = grad.view(self.out_channels, -1) @ unfolded
         actual = wxb.view(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1])
-        self.grad_w.add_(actual.mean(dim = 0))
+        self.weight.grad.add_(actual.mean(dim = 0))
         
 
         # dL/db (I think this is correct, right?)
-        self.grad_b.add_(torch.empty(self.bias.shape)).zero_() + 1
+        self.b.grad.add_(torch.empty(self.bias.shape)).zero_() + 1
 
-        ###return dL/dx
-        # dL/ds = grad
-        # dL/dx = dL/ds * ds/dx
-
-        # First attempt, with dilation = 1.
-
-        #mirror_kernel = self.weight.flip([2,3])
-
-        #zeros = torch.empty(self.input.shape[0], self.out_channels, ).zero_()
-
-        #grad_unfold = unfold(grad, (self.kernel_size[1], self.kernel_size[0])
-
-        #grad_unfold = unfold(grad, (self.kernel_size[1], self.kernel_size[0]))
-        #grad_unfold = grad_unfold.transpose(1,2).matmul(mirror_kernel.view(mirror_kernel.shape[0], -1).t()).transpose(1,2)
-        #grad_unfold = grad_unfold.view(self.input.shape)
-
-        # Convolution is equivalent with Unfold + Matrix Multiplication + Fold (or view to output shape)
-        #inp = torch.randn(1, 3, 10, 12)
-        #w = torch.randn(2, 3, 4, 5)
-        #inp_unf = torch.nn.functional.unfold(inp, (4, 5))
-        #out_unf = inp_unf.transpose(1, 2).matmul(w.view(w.size(0), -1).t()).transpose(1, 2)
-        #out = torch.nn.functional.fold(out_unf, (7, 8), (1, 1))
-        # or equivalently (and avoiding a copy),
-        # out = out_unf.view(1, 2, 7, 8)        
-
+        # return dL/dx
 
         # unstride the output gradient
 
@@ -281,21 +268,20 @@ class Conv2d(Module):
 
         lhs = self.kernel_flipped.view(self.in_channel, self.kernel_size[0] * self.kernel_size[1] * self.out_channel)
         print('lhs.size()', lhs.size())
-        self.input_grad = lhs @ unfolded
+        self.input.grad = lhs @ unfolded
 
-        self.input_grad = self.input_grad.view(self.input.shape)
-        print(self.input_grad.size())
+        self.input.grad = self.input.grad.view(self.input.shape)
+        print(self.input.grad.size())
 
-        return self.input_grad
-
-
-
-        return dLdx
+        return self.input.grad
+    
+    def params():
+        return [self.weight, self.bias]
 
 
 # -
 
-class Upsampling(Module):
+class Upsampling():
     def __init__(self, scale_factor):
         """
         Store the attributes
@@ -310,12 +296,16 @@ class Upsampling(Module):
         self.in_channels = input_.shape[1]
         self.out_channels = self.in_channels
         kernel_size = (self.scale_factor, self.scale_factor)
-        conv = Conv2d(self.in_channels, self.out_channels, kernel_size=kernel_size, stride = self.scale_factor)
+        self.conv = Conv2d(self.in_channels, self.out_channels, kernel_size=kernel_size, stride = self.scale_factor)
         nearest_upsampling = NearestUpsampling(self.scale_factor)
         return conv.forward(nearest_upsampling.forward(input_))
     
     def backward(self, grad):
+        # STILL NEED TO DO
         pass
+    
+    def params():
+        return self.conv.params()
 
 
 class NearestUpsampling(Upsampling):
@@ -325,6 +315,9 @@ class NearestUpsampling(Upsampling):
         """
         super().__init__(scale_factor)
 
+    def params():
+        return []
+        
     def forward(self, input_):
         """
         Perform upsampling using nearest neighbor rule
@@ -350,7 +343,7 @@ import numpy as np
 x = torch.rand(2,3,4,4)
 x
 
-class Model ():
+class Model():
     def __init__(self):
         """
         Instantiate model, optimizer, loss function, any other stuff needed.
@@ -360,9 +353,9 @@ class Model ():
         None
         """
         
-        self.model = Sequential(Conv2d(stride=2),
+        self.model = Sequential(Conv2d(in_channels=3, out_channels=48, kernel_size=3, stride=2),
                                 ReLU,
-                                Conv2d(stride=2),
+                                Conv2d(in_channels=48, out_channels=48, kernel_size=3, stride=2),
                                 ReLU,
                                 Upsampling(scale_factor=2),
                                 ReLU,
@@ -371,12 +364,9 @@ class Model ():
         self.optimizer = SGD(self.model.params, 1e-3)
         self.criterion = MSE()
         
-        self.mini_batch_size = 625
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         
-            
-        # STILL NEED TO DO FUNCTION TO INITIALIZE WEIGHTS
-        # Initialize weights
-        self.model._init_weights()
+        self.mini_batch_size = 625
 
     def load_pretrained_model(self):
         """
@@ -386,8 +376,11 @@ class Model ():
         -------
         None
         """
-        best_state_dict = torch.load('bestmodel.pth', map_location='cpu')
-        self.load_state_dict(best_state_dict)
+        from pathlib import Path
+        model_path = Path(__file__).parent / "bestmodel.pth"
+        model = torch.load(model_path, map_location='cpu')
+        self.model.load_state_dict(model)
+        self.model = self.model.to(self.device)
 
     def train(self,
               train_input,
@@ -438,4 +431,4 @@ class Model ():
         denoised_signal: torch.Tensor
             Tensor of size (N1, C, H, W) containing the denoised signal.
         """
-        return self.forward(test_input)
+        return self.model.forward(test_input)
