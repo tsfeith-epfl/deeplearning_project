@@ -55,6 +55,8 @@ class Model(nn.Module):
         # Mini-Batch found to be empirically the best
         self.mini_batch_size = 625
         
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        
         # Initialize weights
         self._init_weights()
 
@@ -125,6 +127,12 @@ class Model(nn.Module):
         if sharpen:
             x = F.relu(x + sharp_factor*(x - F1.gaussian_blur(x, 3)))
 
+        x = x / torch.max(x) * 255
+            
+        # x = torch.min(torch.full(x.shape, 255), x)
+        print(torch.max(x))
+        print(torch.min(x))
+        
         return x
 
     def load_pretrained_model(self):
@@ -135,13 +143,15 @@ class Model(nn.Module):
         -------
         None
         """
-        best_state_dict = torch.load('bestmodel.pth', map_location='cpu')
-        self.load_state_dict(best_state_dict)
+        from pathlib import Path
+        model_path = Path(__file__).parent / "bestmodel.pth"
+        model = torch.load(model_path, map_location='cpu')
+        self.load_state_dict(model)
 
     def train(self,
               train_input,
               train_target,
-              epochs,
+              num_epochs,
               use_crops = False,
               n_local_crops = 2,
               sharpen = True,
@@ -156,7 +166,7 @@ class Model(nn.Module):
         train_target : torch.Tensor
             Tensor of size (N, C, H, W) containing another noisy version of the
             same images
-        epochs : int
+        num_epochs : int
             Number of epochs to use for training
         use_crops : bool
             Whether or not to use (local and global) crops as part of the data
@@ -173,9 +183,18 @@ class Model(nn.Module):
         -------
         None
         """
+        
+        train_input = train_input.to(torch.float)
+        train_target = train_target.to(torch.float)
+        train_input = train_input.to(self.device)
+        test_input = test_input.to(self.device)
+        train_input.requires_grad_()
+        train_target.requires_grad_()
+        
+        
         n_samples = len(train_input)*(1 + n_local_crops) if use_crops else len(train_input) 
         print('\nTRAINING STARTING...')
-        for e in range(epochs):
+        for e in range(num_epochs):
             epoch_loss = 0
             for b in range(0, train_input.size(0), self.mini_batch_size):
                 self.optimizer.zero_grad()
@@ -183,7 +202,7 @@ class Model(nn.Module):
                 target = train_target.narrow(0, b, self.mini_batch_size)
                 train, target = data_augmentations(train, target, use_crops = use_crops, n_local_crops = n_local_crops)
                 output = self.forward(train, sharpen, sharpen_factor)
-                loss = self.criterion(output, target)
+                loss = self.criterion(output, target).requires_grad_()
                 epoch_loss += loss.item()/n_samples
                 loss.backward()
                 self.optimizer.step()
@@ -209,6 +228,8 @@ class Model(nn.Module):
         denoised_signal: torch.Tensor
             Tensor of size (N1, C, H, W) containing the denoised signal.
         """
+        test_input = test_input.to(torch.float)
+        test_input = test_input.to(self.device)
         return self.forward(test_input, sharpen, sharpen_factor)
         
     
@@ -283,29 +304,17 @@ def psnr(denoised, ground_truth):
 
 if __name__ == '__main__':
 
-    noisy_imgs_1, noisy_imgs_2 = torch.load('train_data.pkl')
-    noisy_imgs, clean_imgs = torch.load('val_data.pkl')
-    noisy_imgs_1 = noisy_imgs_1.to(torch.float)
-    noisy_imgs_2 = noisy_imgs_2.to(torch.float)
-    noisy_imgs = noisy_imgs.to(torch.float)
-    clean_imgs = clean_imgs.to(torch.float)
+    from pathlib import Path
+    data_path = Path(__file__).parent
+    
+    noisy_imgs_1, noisy_imgs_2 = torch.load(data_path / 'train_data.pkl')
+    noisy_imgs, clean_imgs = torch.load(data_path / 'val_data.pkl')
     print('DATA IMPORTED')
 
-
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    print('DEVICE DEFINED', device)
-    noisy_imgs_1 = noisy_imgs_1.to(device)
-    noisy_imgs_2 = noisy_imgs_2.to(device)
-    noisy_imgs = noisy_imgs.to(device)
-    clean_imgs = clean_imgs.to(device)
-    print('DATA PASSED TO DEVICE')
-
-
-
     model = Model()
-    model.to(device)
+    model.to(model.device)
     model.load_pretrained_model()
     # model.train(noisy_imgs_1, noisy_imgs_2, 60)
 
-    output = model.forward(noisy_imgs)
+    output = model.predict(noisy_imgs)
     print(f'PSNR: {psnr(output/255, clean_imgs/255)} dB')
