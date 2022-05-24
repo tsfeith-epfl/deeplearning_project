@@ -59,20 +59,21 @@ class Sigmoid(Module):
 ## LOSS FUNCTIONS
 
 class MSE(Module):
-    def __init__(self, predictions, targets):
-        self.size = len(predictions)
-        self.predictions, self.targets = predictions, targets
+    def __init__(self):
     
-    def forward(self):
+    def forward(self, predictions, targets):
         """
         Mean Squared Error: MSE(x) = 1/N * (y - f(x))^2
         """
+        self.size = len(predictions)
+        self.predictions, self.targets = predictions, targets
         return ((self.targets - self.predictions)**2).sum()/self.size
         
     def backward(self):
         """
         Derivative of MSE = -2/N * (y - f(x))
         """
+        self.predictions.grad = 2/self.size * (self.predictions - self.targets)
         return -2*(self.targets - self.predictions).sum()/self.size
         
 # -
@@ -146,7 +147,7 @@ from torch.nn.functional import fold, unfold
 ##ADD weights initialization
 
 class Conv2d(Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, bias = False):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, bias = True):
         """
         Store the attributes and initialize the parameters and gradient tensors
         """
@@ -190,12 +191,12 @@ class Conv2d(Module):
         else:
             raise Exception("Please enter padding parameters as tuple or int, or a string in {\"same\", \"valid\"}")
 
-        self.bias = bias
-        self.w = torch.empty(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]).normal_()
+        self.use_bias = bias
+        self.weight = torch.empty(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]).normal_()
         self.grad_w = torch.empty(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]).zero_()
         
-        if self.bias:
-            self.b = torch.empty(self.in_channels, self.out_channels, 1).zero_()
+        if self.use_bias:
+            self.bias = torch.empty(self.in_channels, self.out_channels, 1).zero_()
             self.grad_b = torch.empty(self.in_channels, self.out_channels, 1).zero_()  
 
     def forward(self, input_):
@@ -207,10 +208,10 @@ class Conv2d(Module):
                              math.floor((input_.shape[3] + 2*self.padding[1] - self.dilation[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
         output = torch.empty(self.input.shape)
         unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dilation, padding=self.padding, stride=self.stride)
-        if self.bias:
-            wxb = self.w.view(self.out_channels, -1).double() @ unfolded + self.b.view(1, -1, 1) #added .double
+        if self.use_bias:
+            wxb = self.weight.view(self.out_channels, -1) @ unfolded + self.bias.view(1, -1, 1) #added .double
         else:
-            wxb = self.w.view(self.out_channels, -1).double() @ unfolded
+            wxb = self.weight.view(self.out_channels, -1) @ unfolded
 
         actual = wxb.view(input_.shape[0], self.out_channels, self.output_shape[0], self.output_shape[1])
         return actual
@@ -232,7 +233,7 @@ class Conv2d(Module):
         
 
         # dL/db (I think this is correct, right?)
-        self.grad_b.add_(torch.empty(self.b.shape)).zero_() + 1
+        self.grad_b.add_(torch.empty(self.bias.shape)).zero_() + 1
 
         ###return dL/dx
         # dL/ds = grad
