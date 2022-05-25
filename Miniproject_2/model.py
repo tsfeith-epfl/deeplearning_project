@@ -206,8 +206,8 @@ class Conv2d():
         self.weight.grad = torch.empty(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]).zero_()
         
         if self.use_bias:
-            self.bias = torch.empty(self.in_channels, self.out_channels, 1).zero_()
-            self.bias.grad = torch.empty(self.in_channels, self.out_channels, 1).zero_()  
+            self.bias = torch.empty(self.out_channels).uniform_()
+            self.bias.grad = torch.empty(self.out_channels).zero_()  
             
     def forward(self, input_):
         """
@@ -218,8 +218,6 @@ class Conv2d():
                              math.floor((input_.shape[3] + 2*self.padding[1] - self.dilation[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
         output = torch.empty(self.input.shape)
         unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dilation, padding=self.padding, stride=self.stride)
-        
-        print(
         
         if self.use_bias:
             wxb = self.weight.view(self.out_channels, -1) @ unfolded + self.bias.view(1, -1, 1)
@@ -237,13 +235,19 @@ class Conv2d():
         dL/dx = 
         """
         
-        # compute the gradient of dLdW
-        grad_shape = (grad.shape[-2], grad.shape[-1])
-        
-        unfolded = unfold(self.input.view(self.in_channels, 1, self.input.shape[2], self.input.shape[3]), kernel_size = self.output_shape, dilation = self.stride)
-        
-        dLdW = (grad.view(self.out_channels,-1) @ unfolded).view(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1])
-        self.weight.grad += dLdW
+        # compute dLdW
+        self.grad = grad
+        unfolded = unfold(self.input, kernel_size = (self.grad.shape[2], self.grad.shape[3]),  dilation=self.stride).view(self.input.shape[0],
+                                                                                                                         self.in_channels,
+                                                                                                                         self.grad.shape[2] * self.grad.shape[3],
+                                                                                                                         self.kernel_size[0] * self.kernel_size[1])     
+   
+        wxb = grad.view(self.out_channels,-1) @ unfolded
+        actual = wxb.view(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1])
+        self.weight.grad.add_(actual.mean(dim = 0))
+
+        # compute the gradient dLdb
+        self.bias.grad += grad.mean((0,2,3))
         
         # compute the gradient dLdX
         kernel_mirrored = self.weight.flip([2,3])
