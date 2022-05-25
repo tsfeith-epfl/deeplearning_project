@@ -43,7 +43,7 @@ class ReLU():
         zeros[gradwrtoutput > zeros] = 1
         return zeros
 
-    def params():
+    def params(self):
         return []
     
 class Sigmoid():
@@ -59,7 +59,7 @@ class Sigmoid():
         """
         return 1 / (1 + (-grad).exp()) * (1 - 1 / (1 + (-grad).exp()))
     
-    def params():
+    def params(self):
         return []
        
 ## LOSS FUNCTIONS
@@ -71,15 +71,15 @@ class MSE():
         """
         Mean Squared Error: MSE(x) = 1/N * (y - f(x))^2
         """
-        self.size = len(predictions)
+        self.size = predictions.numel()
         self.predictions, self.targets = predictions, targets
-        return ((self.targets - self.predictions)**2).sum()/self.size
+        return ((self.predictions - self.targets)**2).mean()
         
     def backward(self):
         """
-        Derivative of MSE = -2/N * (y - f(x))
+        Derivative of MSE = 2/N * (y - f(x))
         """
-        return -2/self.size * (self.predictions - self.targets)
+        return 2/self.size * (self.predictions - self.targets)
 
 # -
 
@@ -217,7 +217,7 @@ class Conv2d():
         self.output_shape = (math.floor((input_.shape[2] + 2*self.padding[0] - self.dilation[0]*(self.kernel_size[0] - 1) - 1)/self.stride[0] + 1),
                              math.floor((input_.shape[3] + 2*self.padding[1] - self.dilation[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
         output = torch.empty(self.input.shape)
-        unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dilation, padding=self.padding, stride=self.stride)
+        unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dilation, padding=self.padding, stride=self.stride).to(torch.float)
         
         if self.use_bias:
             wxb = self.weight.view(self.out_channels, -1) @ unfolded + self.bias.view(1, -1, 1)
@@ -236,80 +236,36 @@ class Conv2d():
         """
         
         # compute dLdW
+        grad = grad.to(torch.float)
         self.grad = grad
-        unfolded = unfold(self.input, kernel_size = (self.grad.shape[2], self.grad.shape[3]),  dilation=self.stride).view(self.input.shape[0],
-                                                                                                                         self.in_channels,
-                                                                                                                         self.grad.shape[2] * self.grad.shape[3],
-                                                                                                                         self.kernel_size[0] * self.kernel_size[1])     
-   
-        wxb = grad.view(self.out_channels,-1) @ unfolded
+        self.unfolded = unfold(self.input, kernel_size = (self.grad.shape[2], self.grad.shape[3]),  dilation=self.stride)\
+                        .to(torch.float).view(self.input.shape[0],
+                                              self.in_channels,
+                                              self.grad.shape[2] * self.grad.shape[3],
+                                              self.kernel_size[0] * self.kernel_size[1])     
+        
+        wxb = grad.view(self.out_channels,-1) @ self.unfolded
         actual = wxb.view(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1])
         self.weight.grad.add_(actual.mean(dim = 0))
 
         # compute the gradient dLdb
-        self.bias.grad += grad.mean((0,2,3))
+        self.bias.grad += grad.sum((0,2,3))
         
         # compute the gradient dLdX
         kernel_mirrored = self.weight.flip([2,3])
         
-        expanded_grad = torch.empty(self.input.shape[0], self.out_channels, (grad_shape[0]-1) * (self.stride[0] - 1) + grad_shape[1], (grad_shape[1]-1) * (self.stride[1] - 1) + grad_shape[1]).yero_()
+        expanded_grad = torch.empty(self.input.shape[0], self.out_channels, (grad.shape[2]-1) * (self.stride[0] - 1) + grad.shape[2], (grad.shape[3]-1) * (self.stride[1] - 1) + grad.shape[3]).zero_()
         expanded_grad[:, :, ::self.stride[0], ::self.stride[1]] = grad
         
-        unfolded = unfold(expanded_grad, kernel_size = self.kernel_size, padding = (self.kernel_size[0] - 1, self.kernel_size[1] - 1))
+        unfolded = unfold(expanded_grad, kernel_size = self.kernel_size, padding = (self.kernel_size[0] - 1, self.kernel_size[1] - 1)).to(torch.float)
         
-        corrected_kernel = self.kernel_mirrored.view(self.in_channels, self.kernel_size[0] * self.kernel_size[1] * self.out_channels)
+        corrected_kernel = kernel_mirrored.view(self.in_channels, self.kernel_size[0] * self.kernel_size[1] * self.out_channels)
         dLdX = (corrected_kernel @ unfolded).view(self.input.shape)
         
         return dLdX
-        
-        
-        
-        """
-        self.grad = grad
-        unfolded = unfold(self.input, kernel_size = self.kernel_size)#,  dilation=self.dilation
-                         # , padding=self.padding, stride=self.stride)
-        wxb = grad.view(self.out_channels, -1) @ unfolded
-        actual = wxb.view(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1])
-        self.weight.grad.add_(actual.mean(dim = 0))
-        
 
-        # dL/db (I think this is correct, right?)
-        self.b.grad.add_(torch.empty(self.bias.shape)).zero_() + 1
-
-        # return dL/dx
-
-        # unstride the output gradient
-
-        # second index of zeros is output channels
-        x, y = output_gradient.size()[-2:]
-        zeros = torch.empty(self.input.size(0),self.out_channel, (x-1)*(self.stride-1)+x, y+(y-1)*(self.stride-1)).zero_()
-        zeros[:,:,::self.stride,::self.stride] = output_gradient
-
-        self.unstrided_gradient = zeros
-        print('self.unstrided_gradient.size()', self.unstrided_gradient.size())
-
-
-        unfolded = unfold(self.unstrided_gradient,
-                          kernel_size = (self.kernel_size,self.kernel_size),
-                          stride = 1,
-                          padding = (self.kernel_size[0] - 1, self.kernel_size[1] - 1))
-        print(unfolded)
-        print('unfolded.size()', unfolded.size())
-
-        lhs = self.kernel_flipped.view(self.in_channel, self.kernel_size[0] * self.kernel_size[1] * self.out_channel)
-        print('lhs.size()', lhs.size())
-        self.input.grad = lhs @ unfolded
-
-        self.input.grad = self.input.grad.view(self.input.shape)
-        print(self.input.grad.size())
-
-        return self.input.grad
-        """
-    def params():
+    def params(self):
         return [self.weight, self.bias]
-
-
-# -
 
 class Upsampling():
     def __init__(self, scale_factor):
@@ -318,6 +274,7 @@ class Upsampling():
         """
         self.scale_factor = scale_factor
 
+        
     def forward(self, input_):
         """
         perform upsampling using nearest neighbor rule and then convolution, to have a transposed convolution
@@ -327,14 +284,23 @@ class Upsampling():
         self.out_channels = self.in_channels
         kernel_size = (self.scale_factor, self.scale_factor)
         self.conv = Conv2d(self.in_channels, self.out_channels, kernel_size=kernel_size, stride = self.scale_factor)
-        nearest_upsampling = NearestUpsampling(self.scale_factor)
-        return conv.forward(nearest_upsampling.forward(input_))
+        self.nearest_upsampling = NearestUpsampling(self.scale_factor)
+        
+        self.out_upsample = self.nearest_upsampling.forward(input_)
+        self.out_conv = self.conv.forward(self.out_upsample)
+
+        return self.out_conv
     
     def backward(self, grad):
-        # STILL NEED TO DO
-        pass
-    
-    def params():
+        # Output: Z = Upsampling(Conv(X)) = Upsampling(Y), Y = Conv(X)
+        # So, dLdX = dLdZ.dZdX = dLdZ.dZdY.dYdX
+        
+        grad_1 = self.conv.backward(grad)
+        grad_2 = self.nearest_upsampling.backward(grad_1)
+        
+        return grad_2
+        
+    def params(self):
         return self.conv.params()
 
 
@@ -345,7 +311,7 @@ class NearestUpsampling(Upsampling):
         """
         super().__init__(scale_factor)
 
-    def params():
+    def params(self):
         return []
         
     def forward(self, input_):
@@ -358,20 +324,18 @@ class NearestUpsampling(Upsampling):
         """
         Convolve the gradient with a filter of ones to return the correct value
         """
-        self.filter_ones = torch.empty(self.scale_factor**2, dtype = float).zero_() + 1
-        unfolded = unfold(grad, kernel_size = self.scale_factor,
-                          stride=self.scale_factor).view(grad.shape[0], grad.shape[1], self.scale_factor*self.scale_factor,
-                                                         grad.shape[2]//self.scale_factor*grad.shape[3]//self.scale_factor)
-        wxb = self.filter_ones@unfolded
+        self.filter_ones = torch.empty(self.scale_factor**2, dtype = torch.float).zero_() + 1
+        self.unfolded = unfold(grad, kernel_size = self.scale_factor, stride=self.scale_factor).to(torch.float).view(grad.shape[0],
+                                                                                                                grad.shape[1], 
+                                                                                                                self.scale_factor*self.scale_factor,
+                                                                                                                grad.shape[2]//self.scale_factor*grad.shape[3]//self.scale_factor)
+        wxb = self.filter_ones@self.unfolded
         actual = wxb.view(grad.shape[0], grad.shape[1], grad.shape[2]//self.scale_factor,grad.shape[3]//self.scale_factor)
         return actual
 
 # Working space below
 
 import torch
-import numpy as np
-x = torch.rand(2,3,4,4)
-x
 
 class Model():
     def __init__(self):
@@ -431,6 +395,10 @@ class Model():
         -------
         None
         """
+        train_input = train_input.to(torch.float)
+        train_target = train_target.to(torch.float)
+        train_input = train_input.to(self.device)
+        train_target = train_target.to(self.device)
         print('\nTRAINING STARTING...')
         for e in range(epochs):
             epoch_loss = 0
@@ -462,3 +430,8 @@ class Model():
             Tensor of size (N1, C, H, W) containing the denoised signal.
         """
         return self.model.forward(test_input)
+
+if __name__ == '__main__':
+    pass
+    
+    
