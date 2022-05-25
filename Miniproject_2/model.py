@@ -1,4 +1,3 @@
-import math
 import torch
 torch.set_grad_enabled(True)
 
@@ -109,7 +108,6 @@ class SGD():
 
 
 class Sequential(): #I may need also functions 
-    
     def __init__(self, *args):
         """
         Initialize an empty list in which we're going to append the modules
@@ -154,6 +152,9 @@ class Sequential(): #I may need also functions
 
 
 # +
+from torch.nn.functional import fold, unfold
+##ADD weights initialization
+
 from torch.nn.functional import fold, unfold
 ##ADD weights initialization
 
@@ -203,10 +204,11 @@ class Conv2d():
             raise Exception("Please enter padding parameters as tuple or int, or a string in {\"same\", \"valid\"}")
 
         self.use_bias = bias
-        self.weight = torch.empty(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]).normal_()
+        self.weight = torch.empty(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]).zero_() +1
         self.weight.grad = torch.empty(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]).zero_()
+        
         if self.use_bias:
-            self.bias = torch.empty(self.out_channels).uniform_()
+            self.bias = torch.empty(self.out_channels).zero_() +1
             self.bias.grad = torch.empty(self.out_channels).zero_()  
             
     def forward(self, input_):
@@ -217,7 +219,7 @@ class Conv2d():
         self.output_shape = (math.floor((input_.shape[2] + 2*self.padding[0] - self.dilation[0]*(self.kernel_size[0] - 1) - 1)/self.stride[0] + 1),
                              math.floor((input_.shape[3] + 2*self.padding[1] - self.dilation[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
         output = torch.empty(self.input.shape)
-        unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dilation, padding=self.padding, stride=self.stride).to(torch.float)
+        unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dilation, padding=self.padding, stride=self.stride)
         
         if self.use_bias:
             wxb = self.weight.view(self.out_channels, -1) @ unfolded + self.bias.view(1, -1, 1)
@@ -236,17 +238,15 @@ class Conv2d():
         """
         
         # compute dLdW
-        self.grad = grad.sum(0).unsqueeze(0)
-        self.input = self.input.sum(0).unsqueeze(0)
-        
-        unfolded=unfold(self.input, kernel_size=(self.grad.shape[2], self.grad.shape[3]), dilation=self.stride).view(self.input.shape[0],
-                                                                                                                     self.in_channels,
-                                                                                                                     self.grad.shape[2] * self.grad.shape[3],
-                                                                                                                     self.kernel_size[0] * self.kernel_size[1])
-
-        wxb = self.grad.view(self.out_channels,-1) @ unfolded
-        actual = wxb.view(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1])
-        self.weight.grad.add_(actual.mean(dim = 0))
+        self.grad = grad
+        unfolded = unfold(self.input,kernel_size=(self.grad.shape[2],self.grad.shape[3]),dilation=self.stride).view(self.input.shape[0],
+                                                                                                                    self.in_channels,
+                                                                                                                    self.grad.shape[2] * self.grad.shape[3],
+                                                                                                                    self.kernel_size[0] * self.kernel_size[1])     
+   
+        wxb = grad.view(self.input.shape[0]*self.out_channels,-1) @ unfolded
+        actual = wxb.reshape(self.in_channels, self.out_channels, self.kernel_size[0], self.kernel_size[1]).transpose(0,1).reshape(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1])
+        self.weight.grad.add_(actual)
 
         # compute the gradient dLdb
         self.bias.grad += self.grad.sum((0,2,3))
@@ -265,10 +265,7 @@ class Conv2d():
         return dLdX
 
     def params(self):
-        if self.use_bias:
-            return [self.weight, self.bias]
-        else:
-            return [self.weight]
+        return [self.weight, self.bias]
 
 class Upsampling():
     def __init__(self, scale_factor):
@@ -328,11 +325,11 @@ class NearestUpsampling(Upsampling):
         Convolve the gradient with a filter of ones to return the correct value
         """
         self.filter_ones = torch.empty(self.scale_factor**2, dtype = torch.float).zero_() + 1
-        self.unfolded = unfold(grad, kernel_size = self.scale_factor, stride=self.scale_factor).to(torch.float).view(grad.shape[0],
+        unfolded = unfold(grad, kernel_size = self.scale_factor, stride=self.scale_factor).to(torch.float).view(grad.shape[0],
                                                                                                                 grad.shape[1], 
                                                                                                                 self.scale_factor*self.scale_factor,
                                                                                                                 grad.shape[2]//self.scale_factor*grad.shape[3]//self.scale_factor)
-        wxb = self.filter_ones@self.unfolded
+        wxb = self.filter_ones@unfolded
         actual = wxb.view(grad.shape[0], grad.shape[1], grad.shape[2]//self.scale_factor,grad.shape[3]//self.scale_factor)
         return actual
 
@@ -354,16 +351,16 @@ class Model():
                                 ReLU,
                                 Conv2d(in_channels=48, out_channels=48, kernel_size=3, stride=2),
                                 ReLU,
-                                Upsampling(scale_factor=2),
+                                Upsampling(scale_factor=1),
                                 ReLU,
-                                Upsampling(scale_factor=2),
+                                Upsampling(scale_factor=1),
                                 Sigmoid)
         self.optimizer = SGD(self.model.params, 1e-3)
         self.criterion = MSE()
-        
+
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        
-        self.mini_batch_size = 625
+
+        self.mini_batch_size = 1
 
     def load_pretrained_model(self):
         """
@@ -403,17 +400,18 @@ class Model():
         train_input = train_input.to(self.device)
         train_target = train_target.to(self.device)
         print('\nTRAINING STARTING...')
+        n_samples = train_input.numel()
         for e in range(epochs):
             epoch_loss = 0
             for b in range(0, train_input.size(0), self.mini_batch_size):
                 self.optimizer.zero_grad()
                 train = train_input.narrow(0, b, self.mini_batch_size)
                 target = train_target.narrow(0, b, self.mini_batch_size)
-                train, target = data_augmentations(train, target, use_crops = use_crops, n_local_crops = n_local_crops)
-                output = self.mode.forward(train, sharpen, sharpen_factor)
+                output = self.model.forward(train)
                 loss = self.criterion(output, target)
                 epoch_loss += loss.item()/n_samples
-                loss.backward()
+                grad = self.optimizer.backward()
+                self.model.backward(grad)
                 self.optimizer.step()
             print(f"Epoch {e+1}: Loss = {epoch_loss};")
 
@@ -435,8 +433,8 @@ class Model():
         return self.model.forward(test_input)
 
 if __name__ == '__main__':
-    x = torch.arange(150).view(2,3,5,5).to(torch.float)
-    y = (torch.arange(24).view(2,3,2,2) + torch.normal(0, 1, (2,3,2,2))).to(torch.float)
+    x = torch.arange(375).view(5,3,5,5).to(torch.float)
+    y = (torch.arange(60).view(5,3,2,2) + torch.normal(0, 1, (5,3,2,2))).to(torch.float)
     
     in_channels = 3
     out_channels = 3
@@ -478,10 +476,10 @@ if __name__ == '__main__':
     sgd.step()
     sgd_ours.step()
         
-    if torch.allclose(conv.bias, conv_ours.bias):
+    if torch.allclose(conv.weight, conv_ours.weight):
         print('CONGRATS! The updated weights are identical.')
     else:
-        print(f'OOPS, the weight didn\'t match after {iters} iterations. Their difference was {torch.norm(conv.weight - conv_ours.weight):.2f}')
+        print('OOPS, something is still not quite right. Look at both weights below.')
         print(conv.weight)
         print(conv_ours.weight)    
 
