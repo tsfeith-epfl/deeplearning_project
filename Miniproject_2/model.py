@@ -53,11 +53,11 @@ class Sigmoid():
         """
         return 1 / (1 + (-input_).exp())
     
-    def backward(self, gradwrtoutput):
+    def backward(self, grad):
         """
         Derivative of sigmoid: dsig(x)/dx = sig(x)(1-sig(x))
         """
-        return 1 / (1 + gradwrtoutput.exp()) * (1 - 1 / (1 + gradwrtoutput.exp()))
+        return 1 / (1 + (-grad).exp()) * (1 - 1 / (1 + (-grad).exp()))
     
     def params():
         return []
@@ -79,9 +79,8 @@ class MSE():
         """
         Derivative of MSE = -2/N * (y - f(x))
         """
-        self.predictions.grad = 2/self.size * (self.predictions - self.targets)
-        return -2*(self.targets - self.predictions).sum()/self.size
-        
+        return -2/self.size * (self.predictions - self.targets)
+
 # -
 
 class SGD():
