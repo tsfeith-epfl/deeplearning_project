@@ -32,19 +32,24 @@ class ReLU():
         """
         ReLU(x) = max(0, x): returns the max between 0 and the input
         """
-        input_[input_<torch.empty(input_.shape).zero_()]=0
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        input_[input_<torch.empty(input_.shape).zero_().to(device)]=0
         return input_
     
     def backward(self, gradwrtoutput):
         """
         Derivative of ReLU: 1 if input > 0, 0 elsewhere
         """
-        zeros = torch.empty(gradwrtoutput.shape).zero_() 
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        zeros = torch.empty(gradwrtoutput.shape).zero_().to(device) 
         zeros[gradwrtoutput > zeros] = 1
         return zeros
 
     def params(self):
         return []
+    
+    def to(self, device):
+        pass
     
 class Sigmoid():
     def forward(self, input_):
@@ -62,6 +67,9 @@ class Sigmoid():
     def params(self):
         return []
        
+    def to(self, device):
+        pass
+        
 ## LOSS FUNCTIONS
 
 class MSE():
@@ -98,14 +106,15 @@ class SGD():
         """
         Perform one step of Stochastig Gradient Descnet
         """
-        for param in self.params:
+        for param in self.params():
             param -= self.lr*param.grad
         
     def zero_grad(self):
         """
         Zero all the gradients.
         """
-        for param in self.params: param.grad = torch.empty(param.shape).zero_()
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        for param in self.params(): param.grad = torch.empty(param.shape).zero_().to(device)
 
 
 class Sequential(): #I may need also functions 
@@ -121,11 +130,11 @@ class Sequential(): #I may need also functions
         """
         Do the forward pass of each module and keep track of the output
         """
-        output = input_.clone()
+        self.input = input_
         for module in self.model:
-            output = module.forward(output)    
+            self.input = module.forward(self.input)    
         
-        return output
+        return self.input
     
     def backward(self, gradwrtoutput):
         """
@@ -150,6 +159,15 @@ class Sequential(): #I may need also functions
     
     def modules(self):
         return self.model
+    
+    def to(self, device):
+        if device == 'cuda' or device == 'cpu':
+            try:
+                self.input.to(device)
+            except:
+                pass
+            for module in self.model:
+                module.to(device)
 
 
 # +
@@ -164,6 +182,7 @@ class Conv2d():
         """
         Store the attributes and initialize the parameters and gradient tensors
         """
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.in_channels = in_channels
         self.out_channels = out_channels
         
@@ -204,13 +223,15 @@ class Conv2d():
         else:
             raise Exception("Please enter padding parameters as tuple or int, or a string in {\"same\", \"valid\"}")
 
+        k = math.sqrt(1/(self.in_channels*self.kernel_size[0]*self.kernel_size[1]))
+
         self.use_bias = bias
-        self.weight = torch.empty(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]).zero_() +1
-        self.weight.grad = torch.empty(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]).zero_()
+        self.weight = torch.empty(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]).uniform_(-k, k).to(self.device)
+        self.weight.grad = torch.empty(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]).zero_().to(self.device)
         
         if self.use_bias:
-            self.bias = torch.empty(self.out_channels).zero_() +1
-            self.bias.grad = torch.empty(self.out_channels).zero_()  
+            self.bias = torch.empty(self.out_channels).uniform_(-k, k).to(self.device)
+            self.bias.grad = torch.empty(self.out_channels).zero_().to(self.device)
             
     def forward(self, input_):
         """
@@ -219,14 +240,14 @@ class Conv2d():
         self.input = input_
         self.output_shape = (math.floor((input_.shape[2] + 2*self.padding[0] - self.dilation[0]*(self.kernel_size[0] - 1) - 1)/self.stride[0] + 1),
                              math.floor((input_.shape[3] + 2*self.padding[1] - self.dilation[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
-        output = torch.empty(self.input.shape)
-        unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dilation, padding=self.padding, stride=self.stride)
-        
+        output = torch.empty(self.input.shape).to(self.device)
+        unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dilation, padding=self.padding, stride=self.stride).to(self.device)
+
         if self.use_bias:
             wxb = self.weight.view(self.out_channels, -1) @ unfolded + self.bias.view(1, -1, 1)
         else:
             wxb = self.weight.view(self.out_channels, -1) @ unfolded
-
+        wxb = wxb.to(self.device)
         actual = wxb.view(input_.shape[0], self.out_channels, self.output_shape[0], self.output_shape[1])
         return actual
         
@@ -240,20 +261,24 @@ class Conv2d():
         
         # compute dLdW
         self.grad = grad
-        print(grad.shape)
-        print(self.input.shape)
-        unfolded = unfold(self.input, kernel_size = (self.grad.shape[2], self.grad.shape[3]),  dilation=self.stride).view(self.input.shape[0],
-                                                                                                                          self.in_channels,
-                                                                                                                          self.grad.shape[2] * self.grad.shape[3],
-                                                                                                                          self.kernel_size[0] * self.kernel_size[1])     
-   
-        wxb = grad.view(self.input.shape[0]*self.out_channels,-1) @ unfolded
-        wxb = torch.empty(self.in_channels, self.out_channels, self.kernel_size[0]*self.kernel_size[1]).zero_()
         
+        if (self.input.shape[2] % 2 == 0 and self.kernel_size[0] % 2 == 1) or ((self.input.shape[2] % 2 == 1 and self.kernel_size[0] % 2 == 0)):
+            self.input = self.input[:,:,:-1,:]
+        if (self.input.shape[3] % 2 == 0 and self.kernel_size[1] % 2 == 1) or ((self.input.shape[3] % 2 == 1 and self.kernel_size[1] % 2 == 0)):
+            self.input = self.input[:,:,:,:-1]
+
+        unfolded = unfold(self.input, kernel_size = (self.grad.shape[2], self.grad.shape[3]), dilation=self.stride).view(self.input.shape[0],
+                                                                                                                         self.in_channels,
+                                                                                                                         self.grad.shape[2] * self.grad.shape[3],
+                                                                                                                         self.kernel_size[0] * self.kernel_size[1]).to(self.device)
+
+        # wxb = grad.view(self.input.shape[0]*self.out_channels,-1) @ unfolded
+        wxb = torch.empty(self.in_channels, self.out_channels, self.kernel_size[0]*self.kernel_size[1]).zero_().to(self.device)
+
         for i in range(self.input.shape[0]):
-            partial = grad.reshape(self.input.shape[0],self.out_channels,-1)[i] @ unfolded[i, :]
+            partial = (grad.reshape(self.input.shape[0],self.out_channels,-1)[i] @ unfolded[i, :]).to(self.device)
             wxb += partial
-            
+
         actual = wxb.transpose(0,1).view(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1])
         self.weight.grad.add_(actual)#with b=1 .mean(0) makes a mess
 
@@ -261,39 +286,42 @@ class Conv2d():
         self.bias.grad += self.grad.sum((0,2,3))
 
         # compute the gradient dLdX
-        kernel_mirrored = self.weight.flip([2,3])
+        kernel_mirrored = self.weight.flip([2,3]).to(self.device)
 
-        expanded_grad = torch.empty(self.input.shape[0], self.out_channels, (grad.shape[2]-1) * (self.stride[0] - 1) + grad.shape[2], (grad.shape[3]-1) * (self.stride[1] - 1) + grad.shape[3]).zero_()
+        expanded_grad = torch.empty(self.input.shape[0], self.out_channels, (grad.shape[2]-1) * (self.stride[0] - 1) + grad.shape[2], (grad.shape[3]-1) * (self.stride[1] - 1) + grad.shape[3]).zero_().to(self.device)
         expanded_grad[:, :, ::self.stride[0], ::self.stride[1]] = self.grad
 
-        unfolded = unfold(expanded_grad, kernel_size = self.kernel_size, padding = (self.kernel_size[0] - 1, self.kernel_size[1] - 1))
+        unfolded = unfold(expanded_grad, kernel_size = self.kernel_size, padding = (self.kernel_size[0] - 1, self.kernel_size[1] - 1)).to(self.device)
 
-        corrected_kernel = kernel_mirrored.view(self.in_channels, self.kernel_size[0] * self.kernel_size[1] * self.out_channels)
-        dLdX = (corrected_kernel @ unfolded).view(self.input.shape)
+        corrected_kernel = kernel_mirrored.view(self.in_channels, self.kernel_size[0] * self.kernel_size[1] * self.out_channels).to(self.device)
+        dLdX = (corrected_kernel @ unfolded).view(self.input.shape).to(self.device)
 
         return dLdX
 
     def params(self):
         return [self.weight, self.bias]
 
+    def to(self, device):
+        for param in self.params():
+            param.to(device)
+
 class Upsampling():
-    def __init__(self, scale_factor):
+    def __init__(self, scale_factor, in_channels, out_channels):
         """
         Store the attributes
         """
         self.scale_factor = scale_factor
-
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.conv = Conv2d(self.in_channels, self.out_channels, kernel_size=1, stride = 2, padding = 0)
+        self.nearest_upsampling = NearestUpsampling(self.scale_factor)
         
     def forward(self, input_):
         """
         perform upsampling using nearest neighbor rule and then convolution, to have a transposed convolution
         """
         self.input = input_ 
-        self.in_channels = input_.shape[1]
-        self.out_channels = self.in_channels
         kernel_size = (self.scale_factor, self.scale_factor)
-        self.conv = Conv2d(self.in_channels, self.out_channels, kernel_size=kernel_size, stride = self.scale_factor)
-        self.nearest_upsampling = NearestUpsampling(self.scale_factor)
         
         self.out_upsample = self.nearest_upsampling.forward(input_)
         self.out_conv = self.conv.forward(self.out_upsample)
@@ -303,7 +331,6 @@ class Upsampling():
     def backward(self, grad):
         # Output: Z = Upsampling(Conv(X)) = Upsampling(Y), Y = Conv(X)
         # So, dLdX = dLdZ.dZdX = dLdZ.dZdY.dYdX
-        
         grad_1 = self.conv.backward(grad)
         grad_2 = self.nearest_upsampling.backward(grad_1)
         
@@ -312,14 +339,18 @@ class Upsampling():
     def params(self):
         return self.conv.params()
 
+    def to(self, device):
+        for param in self.conv.params():
+            param.to(device)
+    
 
-class NearestUpsampling(Upsampling):
+class NearestUpsampling():
     def __init__(self, scale_factor):
         """
         Store the attributes
         """
-        super().__init__(scale_factor)
-
+        self.scale_factor = scale_factor
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
     def params(self):
         return []
         
@@ -333,12 +364,12 @@ class NearestUpsampling(Upsampling):
         """
         Convolve the gradient with a filter of ones to return the correct value
         """
-        self.filter_ones = torch.empty(self.scale_factor**2, dtype = torch.float).zero_() + 1
+        self.filter_ones = (torch.empty(self.scale_factor**2, dtype = torch.float).zero_() + 1).to(self.device)
         unfolded = unfold(grad, kernel_size = self.scale_factor, stride=self.scale_factor).to(torch.float).view(grad.shape[0],
                                                                                                                 grad.shape[1], 
                                                                                                                 self.scale_factor*self.scale_factor,
-                                                                                                                grad.shape[2]//self.scale_factor*grad.shape[3]//self.scale_factor)
-        wxb = self.filter_ones@unfolded
+                                                                                                                grad.shape[2]//self.scale_factor*grad.shape[3]//self.scale_factor).to(self.device)
+        wxb = (self.filter_ones@unfolded).to(self.device)
         actual = wxb.view(grad.shape[0], grad.shape[1], grad.shape[2]//self.scale_factor,grad.shape[3]//self.scale_factor)
         return actual
 
@@ -356,20 +387,22 @@ class Model():
         None
         """
         
-        self.model = Sequential(Conv2d(in_channels=3, out_channels=48, kernel_size=3, stride=2),
-                                ReLU,
-                                Conv2d(in_channels=48, out_channels=48, kernel_size=3, stride=2),
-                                ReLU,
-                                Upsampling(scale_factor=1),
-                                ReLU,
-                                Upsampling(scale_factor=1),
-                                Sigmoid)
+        # input.shape = [B, 3, H_in, H_out]
+        self.model = Sequential(Conv2d(in_channels=3, out_channels=48, kernel_size=2, stride=2),
+                                ReLU(),
+                                Conv2d(in_channels=48, out_channels=48, kernel_size=2, stride=2),
+                                ReLU(),
+                                Upsampling(scale_factor=4, in_channels=48, out_channels=24),
+                                ReLU(),
+                                Upsampling(scale_factor=4, in_channels=24, out_channels=3),
+                                Sigmoid())
         self.optimizer = SGD(self.model.params, 1e-3)
         self.criterion = MSE()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.model.to(self.device)
 
-        self.mini_batch_size = 1
+        self.mini_batch_size = 200
 
     def load_pretrained_model(self):
         """
@@ -417,9 +450,9 @@ class Model():
                 train = train_input.narrow(0, b, self.mini_batch_size)
                 target = train_target.narrow(0, b, self.mini_batch_size)
                 output = self.model.forward(train)
-                loss = self.criterion(output, target)
+                loss = self.criterion.forward(output, target)
                 epoch_loss += loss.item()/n_samples
-                grad = self.optimizer.backward()
+                grad = self.criterion.backward()
                 self.model.backward(grad)
                 self.optimizer.step()
             print(f"Epoch {e+1}: Loss = {epoch_loss};")
@@ -439,15 +472,20 @@ class Model():
         denoised_signal: torch.Tensor
             Tensor of size (N1, C, H, W) containing the denoised signal.
         """
-        return self.model.forward(test_input)
+        return self.model.forward(test_input)*255
 
 if __name__ == '__main__':
-    x = torch.arange(1*3*32*32).view(1,3,32,32).to(torch.float)
-    y = (torch.arange(1*3*15*15).view(1,3,15,15) + torch.normal(0, 1, (1,3,15,15))).to(torch.float)
-    
+    # Extensive series of tests
+    """
+    batch = 100
     in_channels = 3
-    out_channels = 3
+    out_channels = 46
     kernel_size = 3
+    in_size = 32
+    out_size = int((in_size - kernel_size) / 2 + 1)
+    
+    x = torch.arange(batch*in_channels*in_size**2).view(batch,in_channels,in_size,in_size).to(torch.float)
+    y = (torch.arange(batch*out_channels*out_size**2).view(batch,out_channels,out_size,out_size) + torch.normal(0, 1, (batch,out_channels,out_size,out_size))).to(torch.float)
     
     conv = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride = 2)
     conv_ours = Conv2d(in_channels, out_channels, kernel_size, stride = 2)
@@ -498,3 +536,23 @@ if __name__ == '__main__':
         print('OOPS, something is still not quite right. Look at both biases below.')
         print(conv.bias)
         print(conv_ours.bias)
+    
+    """
+    # model = Model()
+    # out = model.predict(torch.rand(1, 3, 512, 512) * 255)
+    # print(out.shape)
+    
+    from pathlib import Path
+    data_path = Path(__file__).parent
+    
+    noisy_imgs_1, noisy_imgs_2 = torch.load(data_path / 'train_data.pkl')
+    noisy_imgs, clean_imgs = torch.load(data_path / 'val_data.pkl')
+    print('DATA IMPORTED')
+
+    model = Model()
+    # model.load_pretrained_model()
+    model.train(noisy_imgs_1, noisy_imgs_2, 10)
+
+    output = model.predict(noisy_imgs)
+    print(f'PSNR: {psnr(output/255, clean_imgs/255)} dB')
+    
