@@ -381,11 +381,11 @@ class Model():
         """
         self.model = Sequential(Conv2d(in_channels=3, out_channels=48, kernel_size=2, stride=2),
                                 ReLU(),
-                                Conv2d(in_channels=48, out_channels=48, kernel_size=2, stride=2),
+                                Conv2d(in_channels=48, out_channels=96, kernel_size=2, stride=2),
                                 ReLU(),
-                                Upsampling(scale_factor=2, in_channels=48, out_channels=3),
+                                Upsampling(scale_factor=2, in_channels=96, out_channels=24),
                                 ReLU(),
-                                Upsampling(scale_factor=2, in_channels=3, out_channels=3),
+                                Upsampling(scale_factor=2, in_channels=24, out_channels=3),
                                 Sigmoid())
         self.optimizer = SGD(self.model.params, 1e-3)
         self.criterion = MSE()
@@ -539,10 +539,14 @@ if __name__ == '__main__':
     noisy_imgs_1, noisy_imgs_2 = torch.load(data_path / 'train_data.pkl')
     noisy_imgs, clean_imgs = torch.load(data_path / 'val_data.pkl')
     print('DATA IMPORTED')
+    
+    noisy_imgs_1 = noisy_imgs_1 / 255
+    noisy_imgs_2 = noisy_imgs_2 / 255
 
     model = Model()
     # model.load_pretrained_model()
     model.train(noisy_imgs_1, noisy_imgs_2, 10)
+    torch.save(model.state_dict(), f"./outputs_{experiment_name}/bestmodel.pth")
 
     output = model.predict(noisy_imgs)
     print(f'PSNR: {psnr(output/255, clean_imgs/255)} dB')
