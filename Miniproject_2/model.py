@@ -1,6 +1,6 @@
 import torch
 import math
-torch.set_grad_enabled(True)
+torch.set_grad_enabled(False)
 
 
 # we want to build the following model
@@ -33,7 +33,7 @@ class ReLU():
         ReLU(x) = max(0, x): returns the max between 0 and the input
         """
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        input_[input_<torch.empty(input_.shape).zero_().to(device)]=0
+        input_[input_<torch.empty(input_.shape).zero_().to(device)]= 0.001 * input_[input_<torch.empty(input_.shape).zero_().to(device)]
         return input_
     
     def backward(self, gradwrtoutput):
@@ -41,8 +41,10 @@ class ReLU():
         Derivative of ReLU: 1 if input > 0, 0 elsewhere
         """
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        zeros = torch.empty(gradwrtoutput.shape).zero_().to(device) 
-        zeros[gradwrtoutput > zeros] = 1
+        zeros = torch.empty(gradwrtoutput.shape).zero_().to(device)
+        mask = gradwrtoutput > zeros
+        zeros[mask] = 1
+        zeros[~mask] = 0.001
         return zeros
 
     def params(self):
@@ -79,15 +81,14 @@ class MSE():
         """
         Mean Squared Error: MSE(x) = 1/N * (y - f(x))^2
         """
-        self.size = predictions.numel()
         self.predictions, self.targets = predictions, targets
-        return ((self.predictions - self.targets)**2).mean()
+        return ((self.predictions - self.targets)**2).sum()
         
     def backward(self):
         """
         Derivative of MSE = 2/N * (y - f(x))
         """
-        return 2/self.size * (self.predictions - self.targets)
+        return 2/self.predictions.numel() * (self.predictions - self.targets)
 
 # -
 
@@ -106,7 +107,7 @@ class SGD():
         """
         Perform one step of Stochastig Gradient Descnet
         """
-        for param in self.params():
+        for param in self.params:
             param -= self.lr*param.grad
         
     def zero_grad(self):
@@ -114,7 +115,7 @@ class SGD():
         Zero all the gradients.
         """
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        for param in self.params(): param.grad = torch.empty(param.shape).zero_().to(device)
+        for param in self.params: param.grad = torch.empty(param.shape).zero_().to(device)
 
 
 class Sequential(): #I may need also functions 
@@ -381,13 +382,13 @@ class Model():
         """
         self.model = Sequential(Conv2d(in_channels=3, out_channels=48, kernel_size=2, stride=2),
                                 ReLU(),
-                                Conv2d(in_channels=48, out_channels=96, kernel_size=2, stride=2),
+                                Conv2d(in_channels=48, out_channels=48, kernel_size=2, stride=2),
                                 ReLU(),
-                                Upsampling(scale_factor=2, in_channels=96, out_channels=24),
+                                Upsampling(scale_factor=2, in_channels=48, out_channels=24),
                                 ReLU(),
                                 Upsampling(scale_factor=2, in_channels=24, out_channels=3),
                                 Sigmoid())
-        self.optimizer = SGD(self.model.params, 1e-3)
+        self.optimizer = SGD(self.model.params(), 1e-6)
         self.criterion = MSE()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -441,6 +442,7 @@ class Model():
                 train = train_input.narrow(0, b, self.mini_batch_size)
                 target = train_target.narrow(0, b, self.mini_batch_size)
                 output = self.model.forward(train)
+                print(output.mean())
                 loss = self.criterion.forward(output, target)
                 epoch_loss += loss.item()/n_samples
                 grad = self.criterion.backward()
@@ -546,7 +548,7 @@ if __name__ == '__main__':
     model = Model()
     # model.load_pretrained_model()
     model.train(noisy_imgs_1, noisy_imgs_2, 10)
-    torch.save(model.state_dict(), f"./outputs_{experiment_name}/bestmodel.pth")
+    # torch.save(model.state_dict(), f"./outputs_{experiment_name}/bestmodel.pth")
 
     output = model.predict(noisy_imgs)
     print(f'PSNR: {psnr(output/255, clean_imgs/255)} dB')
