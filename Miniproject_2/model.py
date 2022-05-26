@@ -240,14 +240,21 @@ class Conv2d():
         
         # compute dLdW
         self.grad = grad
-        unfolded = unfold(self.input,kernel_size=(self.grad.shape[2],self.grad.shape[3]),dilation=self.stride).view(self.input.shape[0],
-                                                                                                                    self.in_channels,
-                                                                                                                    self.grad.shape[2] * self.grad.shape[3],
-                                                                                                                    self.kernel_size[0] * self.kernel_size[1])     
+        unfolded = unfold(self.input, kernel_size = (self.grad.shape[2], self.grad.shape[3]),  dilation=self.stride).view(self.input.shape[0],
+                                                                                                                         self.in_channels,
+                                                                                                                         self.grad.shape[2] * self.grad.shape[3],
+                                                                                                                         self.kernel_size[0] * self.kernel_size[1])     
    
         wxb = grad.view(self.input.shape[0]*self.out_channels,-1) @ unfolded
-        actual = wxb.reshape(self.in_channels, self.out_channels, self.kernel_size[0], self.kernel_size[1]).transpose(0,1).reshape(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1])
-        self.weight.grad.add_(actual)
+        wxb = torch.empty(self.in_channels, self.out_channels, self.kernel_size[0]*self.kernel_size[1]).zero_()
+        
+        for i in range(self.input.shape[0]):
+            partial = grad.reshape(self.input.shape[0],self.out_channels,-1)[i] @ unfolded[i, :]
+            wxb += partial
+            
+        actual = wxb.transpose(0,1).view(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1])
+        print(actual.shape, "actual")
+        self.weight.grad.add_(actual)#with b=1 .mean(0) makes a mess
 
         # compute the gradient dLdb
         self.bias.grad += self.grad.sum((0,2,3))
