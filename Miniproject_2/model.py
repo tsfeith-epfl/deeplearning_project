@@ -240,10 +240,12 @@ class Conv2d():
         
         # compute dLdW
         self.grad = grad
+        print(grad.shape)
+        print(self.input.shape)
         unfolded = unfold(self.input, kernel_size = (self.grad.shape[2], self.grad.shape[3]),  dilation=self.stride).view(self.input.shape[0],
-                                                                                                                         self.in_channels,
-                                                                                                                         self.grad.shape[2] * self.grad.shape[3],
-                                                                                                                         self.kernel_size[0] * self.kernel_size[1])     
+                                                                                                                          self.in_channels,
+                                                                                                                          self.grad.shape[2] * self.grad.shape[3],
+                                                                                                                          self.kernel_size[0] * self.kernel_size[1])     
    
         wxb = grad.view(self.input.shape[0]*self.out_channels,-1) @ unfolded
         wxb = torch.empty(self.in_channels, self.out_channels, self.kernel_size[0]*self.kernel_size[1]).zero_()
@@ -253,7 +255,6 @@ class Conv2d():
             wxb += partial
             
         actual = wxb.transpose(0,1).view(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1])
-        print(actual.shape, "actual")
         self.weight.grad.add_(actual)#with b=1 .mean(0) makes a mess
 
         # compute the gradient dLdb
@@ -441,8 +442,8 @@ class Model():
         return self.model.forward(test_input)
 
 if __name__ == '__main__':
-    x = torch.arange(375).view(5,3,5,5).to(torch.float)
-    y = (torch.arange(60).view(5,3,2,2) + torch.normal(0, 1, (5,3,2,2))).to(torch.float)
+    x = torch.arange(1*3*32*32).view(1,3,32,32).to(torch.float)
+    y = (torch.arange(1*3*15*15).view(1,3,15,15) + torch.normal(0, 1, (1,3,15,15))).to(torch.float)
     
     in_channels = 3
     out_channels = 3
