@@ -142,7 +142,7 @@ class Sequential(): #I may need also functions
         """
         grad = gradwrtoutput
         for module in self.model[::-1]:
-            grad += module.backward(grad)
+            grad = module.backward(grad)
             
         return grad
 
@@ -215,8 +215,8 @@ class Conv2d():
             # OUT = [(IN−D(K-1)+2P-1)/S]+1
             # SO, FOR OUT = IN WE NEED
             # P = [S(IN-1)-IN+D(K-1)+1]/2
-            pad0 = (self.stride[0] * (self.in_channels - 1) - self.in_channels + self.dilation[0] * (self.kernel[0] - 1))//2
-            pad1 = (self.stride[1] * (self.in_channels - 1) - self.in_channels + self.dilation[1] * (self.kernel[1] - 1))//2
+            pad0 = (self.stride[0] * (self.in_channels - 1) - self.in_channels + self.dilation[0] * (self.kernel_size[0] - 1))//2
+            pad1 = (self.stride[1] * (self.in_channels - 1) - self.in_channels + self.dilation[1] * (self.kernel_size[1] - 1))//2
             self.padding = (pad0, pad1)
         elif padding == 'valid':
             self.padding = (0, 0)
@@ -238,10 +238,10 @@ class Conv2d():
         Perform convolution as a linear transformation
         """
         self.input = input_
-        self.output_shape = (math.floor((input_.shape[2] + 2*self.padding[0] - self.dilation[0]*(self.kernel_size[0] - 1) - 1)/self.stride[0] + 1),
-                             math.floor((input_.shape[3] + 2*self.padding[1] - self.dilation[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
+        self.output_shape = (math.floor((self.input.shape[2] + 2*self.padding[0] - self.dilation[0]*(self.kernel_size[0] - 1) - 1)/self.stride[0] + 1),
+                             math.floor((self.input.shape[3] + 2*self.padding[1] - self.dilation[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
         output = torch.empty(self.input.shape).to(self.device)
-        unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dilation, padding=self.padding, stride=self.stride).to(self.device)
+        unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dilation, padding=0, stride=self.stride).to(self.device)
 
         if self.use_bias:
             wxb = self.weight.view(self.out_channels, -1) @ unfolded + self.bias.view(1, -1, 1)
@@ -261,11 +261,6 @@ class Conv2d():
         
         # compute dLdW
         self.grad = grad
-        
-        if (self.input.shape[2] % 2 == 0 and self.kernel_size[0] % 2 == 1) or ((self.input.shape[2] % 2 == 1 and self.kernel_size[0] % 2 == 0)):
-            self.input = self.input[:,:,:-1,:]
-        if (self.input.shape[3] % 2 == 0 and self.kernel_size[1] % 2 == 1) or ((self.input.shape[3] % 2 == 1 and self.kernel_size[1] % 2 == 0)):
-            self.input = self.input[:,:,:,:-1]
 
         unfolded = unfold(self.input, kernel_size = (self.grad.shape[2], self.grad.shape[3]), dilation=self.stride).view(self.input.shape[0],
                                                                                                                          self.in_channels,
@@ -313,7 +308,7 @@ class Upsampling():
         self.scale_factor = scale_factor
         self.in_channels = in_channels
         self.out_channels = out_channels
-        self.conv = Conv2d(self.in_channels, self.out_channels, kernel_size=1, stride = 2, padding = 0)
+        self.conv = Conv2d(self.in_channels, self.out_channels, kernel_size=1, stride = 1, padding = 0)
         self.nearest_upsampling = NearestUpsampling(self.scale_factor)
         
     def forward(self, input_):
@@ -329,8 +324,6 @@ class Upsampling():
         return self.out_conv
     
     def backward(self, grad):
-        # Output: Z = Upsampling(Conv(X)) = Upsampling(Y), Y = Conv(X)
-        # So, dLdX = dLdZ.dZdX = dLdZ.dZdY.dYdX
         grad_1 = self.conv.backward(grad)
         grad_2 = self.nearest_upsampling.backward(grad_1)
         
@@ -386,15 +379,13 @@ class Model():
         -------
         None
         """
-        
-        # input.shape = [B, 3, H_in, H_out]
         self.model = Sequential(Conv2d(in_channels=3, out_channels=48, kernel_size=2, stride=2),
                                 ReLU(),
                                 Conv2d(in_channels=48, out_channels=48, kernel_size=2, stride=2),
                                 ReLU(),
-                                Upsampling(scale_factor=4, in_channels=48, out_channels=24),
+                                Upsampling(scale_factor=2, in_channels=48, out_channels=3),
                                 ReLU(),
-                                Upsampling(scale_factor=4, in_channels=24, out_channels=3),
+                                Upsampling(scale_factor=2, in_channels=3, out_channels=3),
                                 Sigmoid())
         self.optimizer = SGD(self.model.params, 1e-3)
         self.criterion = MSE()
