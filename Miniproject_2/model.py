@@ -27,8 +27,8 @@ class ReLU():
         Derivative of ReLU: 1 if input > 0, 0 elsewhere
         """
         grad = grad.to(self.device)
-        zeros = torch.empty(gradwrtoutput.shape).zero_().to(self.device)
-        zeros[gradwrtoutput > zeros] = 1
+        zeros = torch.empty(grad.shape).zero_().to(self.device)
+        zeros[grad > zeros] = 1
         return zeros.to('cpu')
 
     def params(self):
@@ -299,12 +299,12 @@ class Upsampling():
         self.out_channels = out_channels
         self.padding = padding
         self.kernel_size = kernel_size 
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.conv = Conv2d(self.in_channels, self.out_channels, kernel_size=self.kernel_size, stride = 1, padding = self.padding)
         self.conv.to(self.device)
         self.weight, self.bias = self.conv.params()
         self.nearest_upsampling = NearestUpsampling(self.scale_factor)
         self.name = "Upsampling"
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         
     def forward(self, input_):
         """
@@ -518,5 +518,3 @@ if __name__ == '__main__':
     # output = model.predict(noisy_imgs)
     # print(f'PSNR: {psnr(output/255, clean_imgs/255)} dB')
 
-
-# !python ../test.py -p .. -d ../data
