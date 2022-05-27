@@ -35,24 +35,22 @@ class ReLU():
         Set the name of the module
         """
         self.name = "RelU"
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     def forward(self, input_):
         """
         ReLU(x) = max(0, x): returns the max between 0 and the input
         """
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        input_[input_<torch.empty(input_.shape).zero_().to(device)]= 0.001 * input_[input_<torch.empty(input_.shape).zero_().to(device)]
+        input_ = input_.to(self.device)
+        input_[input_<torch.empty(input_.shape).zero_().to(self.device)] = 0
         return input_
     
     def backward(self, gradwrtoutput):
         """
         Derivative of ReLU: 1 if input > 0, 0 elsewhere
         """
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        zeros = torch.empty(gradwrtoutput.shape).zero_().to(device)
-        mask = gradwrtoutput > zeros
-        zeros[mask] = 1
-        zeros[~mask] = 0.001
+        zeros = torch.empty(gradwrtoutput.shape).zero_().to(self.device)
+        zeros[gradwrtoutput > zeros] = 1
         return zeros
 
     def params(self):
@@ -68,11 +66,13 @@ class Sigmoid():
         Set the name of the module
         """
         self.name = "Sigmoid"
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     def forward(self, input_):
         """
         Sigmoid(x) = 1/(1+e^(-x))
         """
+        input_ = input_.to(self.device)
         return 1 / (1 + (-input_).exp())
     
     def backward(self, grad):
@@ -91,12 +91,12 @@ class Sigmoid():
 
 class MSE():
     def __init__(self):
-        pass
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
     def forward(self, predictions, targets):
         """
         Mean Squared Error: MSE(x) = 1/N * (y - f(x))^2
         """
-        self.predictions, self.targets = predictions, targets
+        self.predictions, self.targets = predictions.to(self.device), targets.to(self.device)
         return ((self.predictions - self.targets)**2).sum()
         
     def backward(self):
@@ -191,9 +191,6 @@ class Sequential(): #I may need also functions
 from torch.nn.functional import fold, unfold
 ##ADD weights initialization
 
-from torch.nn.functional import fold, unfold
-##ADD weights initialization
-
 class Conv2d():
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, bias = True):
         """
@@ -255,19 +252,19 @@ class Conv2d():
         """
         Perform convolution as a linear transformation
         """
-        self.input = input_
+        self.input = input_.to(self.device)
         self.output_shape = (math.floor((self.input.shape[2] + 2*self.padding[0] - self.dilation[0]*(self.kernel_size[0] - 1) - 1)/self.stride[0] + 1),
                              math.floor((self.input.shape[3] + 2*self.padding[1] - self.dilation[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
         output = torch.empty(self.input.shape).to(self.device)
-        unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dilation, padding=0, stride=self.stride).to(self.device)
+        unfolded = unfold(self.input, kernel_size = self.kernel_size,  dilation=self.dilation, padding=0, stride=self.stride).to(self.device)
         self.unfolded = unfolded
-        
+
         if self.use_bias:
             wxb = self.weight.view(self.out_channels, -1) @ unfolded + self.bias.view(1, -1, 1)
         else:
             wxb = self.weight.view(self.out_channels, -1) @ unfolded
         wxb = wxb.to(self.device)
-        actual = wxb.view(input_.shape[0], self.out_channels, self.output_shape[0], self.output_shape[1])
+        actual = wxb.view(input_.shape[0], self.out_channels, self.output_shape[0], self.output_shape[1]).to(self.device)
         return actual
         
     def backward(self, grad):
@@ -320,12 +317,13 @@ class Upsampling():
         self.weight, self.bias = self.conv.params()
         self.nearest_upsampling = NearestUpsampling(self.scale_factor)
         self.name = "Upsampling"
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         
     def forward(self, input_):
         """
         perform upsampling using nearest neighbor rule and then convolution, to have a transposed convolution
         """
-        self.input = input_ 
+        self.input = input_.to(self.device)
         kernel_size = (self.scale_factor, self.scale_factor)
         
         self.out_upsample = self.nearest_upsampling.forward(input_)
@@ -435,7 +433,9 @@ class Model():
       -------
       None
       """
-      infile = open("bestmodel.pth",'rb')
+      from pathlib import Path
+      model_path = Path(__file__).parent / "bestmodel.pth"
+      infile = open(model_path,'rb')
       params = pickle.load(infile)
       for i,layer in enumerate(self.model.layers):
         layer_params = params[str(i)+"."+layer.name]
@@ -447,7 +447,7 @@ class Model():
     def train(self,
               train_input,
               train_target,
-              epochs):
+              num_epochs):
         """
         Train the model.
 
@@ -469,7 +469,7 @@ class Model():
         train_target = train_target.to(self.device)
         print('\nTRAINING STARTING...')
         n_samples = train_input.numel()
-        for e in range(epochs):
+        for e in range(num_epochs):
             epoch_loss = 0
             for b in range(0, train_input.size(0), self.mini_batch_size):
                 self.optimizer.zero_grad()
@@ -498,7 +498,8 @@ class Model():
         denoised_signal: torch.Tensor
             Tensor of size (N1, C, H, W) containing the denoised signal.
         """
-        return self.model.forward(test_input)*255
+        test_input = test_input.float()
+        return self.model.forward(test_input/255)*255
 
 if __name__ == '__main__':
     # Extensive series of tests
