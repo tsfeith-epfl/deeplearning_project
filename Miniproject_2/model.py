@@ -332,7 +332,7 @@ class Upsampling():
     def to(self, device):
         for param in self.conv.params():
             param.to(device)
-    
+
 
 class NearestUpsampling():
     def __init__(self, scale_factor):
@@ -422,14 +422,14 @@ class Model():
         """
         from pathlib import Path
         model_path = Path(__file__).parent / "bestmodel.pth"
-        infile = open(model_path,'rb')
-        params = pickle.load(infile)
-        for i,layer in enumerate(self.model.layers):
-            layer_params = params[str(i)+"."+layer.name]
-            if len(layer_params)==1:
-                layer.weight.copy_(layer_params[0])
-            elif len(layer_params)==2:
-                layer.bias.copy_(layer_params[1])
+        with open(model_path,'rb') as infile:
+            params = pickle.load(infile)
+            for i,layer in enumerate(self.model.layers):
+                layer_params = params[str(i)+"."+layer.name]
+                if len(layer_params)==1:
+                    layer.weight.copy_(layer_params[0])
+                elif len(layer_params)==2:
+                    layer.bias.copy_(layer_params[1])
 
     def train(self,
               train_input,
@@ -508,4 +508,6 @@ if __name__ == '__main__':
 
     # output = model.predict(noisy_imgs)
     # print(f'PSNR: {psnr(output/255, clean_imgs/255)} dB')
-    
+
+
+# !python ../test.py -p .. -d ../data
