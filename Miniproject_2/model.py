@@ -20,15 +20,16 @@ class ReLU():
         """
         input_ = input_.to(self.device)
         input_[input_<torch.empty(input_.shape).zero_().to(self.device)] = 0
-        return input_
+        return input_.to('cpu')
     
-    def backward(self, gradwrtoutput):
+    def backward(self, grad):
         """
         Derivative of ReLU: 1 if input > 0, 0 elsewhere
         """
+        grad = grad.to(self.device)
         zeros = torch.empty(gradwrtoutput.shape).zero_().to(self.device)
         zeros[gradwrtoutput > zeros] = 1
-        return zeros
+        return zeros.to('cpu')
 
     def params(self):
         """
@@ -53,13 +54,14 @@ class Sigmoid():
         Sigmoid(x) = 1/(1+e^(-x))
         """
         input_ = input_.to(self.device)
-        return 1 / (1 + (-input_).exp())
+        return (1 / (1 + (-input_).exp())).to('cpu')
     
     def backward(self, grad):
         """
         Derivative of sigmoid: dsig(x)/dx = sig(x)(1-sig(x))
         """
-        return 1 / (1 + (-grad).exp()) * (1 - 1 / (1 + (-grad).exp()))
+        grad = grad.to(self.device)
+        return (1 / (1 + (-grad).exp()) * (1 - 1 / (1 + (-grad).exp()))).to('cpu')
     
     def params(self):
         """
@@ -81,13 +83,13 @@ class MSE():
         Mean Squared Error: MSE(x) = 1/N * sum((y - f(x))^2)
         """
         self.predictions, self.targets = predictions.to(self.device), targets.to(self.device)
-        return ((self.predictions - self.targets)**2).mean()
+        return ((self.predictions - self.targets)**2).mean().to('cpu')
         
     def backward(self):
         """
         Derivative of MSE = 2/N * (y - f(x))
         """
-        return 2/self.predictions.shape[0] * (self.predictions - self.targets)
+        return (2/self.predictions.shape[0] * (self.predictions - self.targets)).to('cpu')
 
 class SGD():
     """
@@ -106,7 +108,7 @@ class SGD():
         """
         for param in self.params:
             param -= self.lr*param.grad
-        
+
     def zero_grad(self):
         """
         Zero all the gradients
@@ -125,6 +127,7 @@ class Sequential():
         """
         self.layers = args
         self.model = []
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         for module in args:
             self.model.append(module)
             
@@ -132,21 +135,21 @@ class Sequential():
         """
         Do the forward pass of each module and keep track of the output
         """
-        self.input = input_
+        self.input = input_.to(self.device)
         for module in self.model:
             self.input = module.forward(self.input)    
         
-        return self.input
+        return self.input.to('cpu')
     
-    def backward(self, gradwrtoutput):
+    def backward(self, grad):
         """
         Do the backward pass of each module and keep track of the gradient
         """
-        grad = gradwrtoutput
+        grad = grad.to(self.device)
         for module in self.model[::-1]:
             grad = module.backward(grad)
-            
-        return grad
+
+        return grad.to('cpu')
 
     def params(self):
         """
@@ -158,7 +161,7 @@ class Sequential():
                 params.append(param)
 
         return params
-    
+
     def modules(self):
         return self.model
     
@@ -253,7 +256,7 @@ class Conv2d():
         wxb = wxb.to(self.device)
         actual = wxb.view(input_.shape[0], self.out_channels, self.output_shape[0], self.output_shape[1]).to(self.device)
         
-        return actual
+        return actual.to('cpu')
         
     def backward(self, grad):
         """
@@ -261,7 +264,7 @@ class Conv2d():
         """
         
         # compute dLdW
-        self.grad = grad
+        self.grad = grad.to(self.device)
 
         actual = grad.view(self.input.shape[0], self.out_channels, -1).bmm(self.unfolded.transpose(1,2)).sum(dim = 0).view(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1])
 
@@ -274,7 +277,7 @@ class Conv2d():
         input_ =  self.weight.view(-1, self.out_channels) @ grad.view(self.input.shape[0],self.out_channels,-1)
         dLdX = fold(input_, kernel_size = self.kernel_size, output_size = (self.input.shape[2],self.input.shape[3]),stride = self.stride,padding = self.padding)
 
-        return dLdX
+        return dLdX.to('cpu')
 
     def params(self):
         """
@@ -297,6 +300,7 @@ class Upsampling():
         self.padding = padding
         self.kernel_size = kernel_size 
         self.conv = Conv2d(self.in_channels, self.out_channels, kernel_size=self.kernel_size, stride = 1, padding = self.padding)
+        self.conv.to(self.device)
         self.weight, self.bias = self.conv.params()
         self.nearest_upsampling = NearestUpsampling(self.scale_factor)
         self.name = "Upsampling"
@@ -312,16 +316,17 @@ class Upsampling():
         self.out_upsample = self.nearest_upsampling.forward(input_)
         self.out_conv = self.conv.forward(self.out_upsample)
 
-        return self.out_conv
+        return self.out_conv.to('cpu')
     
     def backward(self, grad):
         """
         Combine the backward passes of Conv2d and NearestUpsampling
         """
+        grad = grad.to(self.device)
         grad_1 = self.conv.backward(grad)
         grad_2 = self.nearest_upsampling.backward(grad_1)
         
-        return grad_2
+        return grad_2.to('cpu')
         
     def params(self):
         """
@@ -346,12 +351,14 @@ class NearestUpsampling():
         """
         Perform upsampling using nearest neighbor rule
         """
-        return input_.repeat_interleave(self.scale_factor,3).repeat_interleave(self.scale_factor,2)
+        input_ = input_.to(self.device)
+        return input_.repeat_interleave(self.scale_factor,3).repeat_interleave(self.scale_factor,2).to('cpu')
     
     def backward(self, grad):
         """
         Convolve the gradient with a filter of ones to return the correct value
         """
+        grad = grad.to(self.device)
         self.filter_ones = (torch.empty(self.scale_factor**2, dtype = torch.float).zero_() + 1).to(self.device)
         unfolded = unfold(grad, kernel_size = self.scale_factor, stride=self.scale_factor).to(torch.float).view(grad.shape[0],
                                                                                                                 grad.shape[1], 
@@ -359,7 +366,7 @@ class NearestUpsampling():
                                                                                                                 grad.shape[2]//self.scale_factor*grad.shape[3]//self.scale_factor).to(self.device)
         wxb = (self.filter_ones@unfolded).to(self.device)
         actual = wxb.view(grad.shape[0], grad.shape[1], grad.shape[2]//self.scale_factor,grad.shape[3]//self.scale_factor)
-        return actual
+        return actual.to('cpu')
     
     def params(self):
         """
@@ -454,6 +461,8 @@ class Model():
         train_target = train_target.to(torch.float)
         train_input = train_input.to(self.device)
         train_target = train_target.to(self.device)
+        train_input = train_input / 255
+        train_target = train_target / 255
         print('\nTRAINING STARTING...')
         n_samples = train_input.shape[0]
         for e in range(num_epochs):
@@ -486,7 +495,7 @@ class Model():
             Tensor of size (N1, C, H, W) containing the denoised signal.
         """
         test_input = test_input.float()
-        return self.model.forward(test_input/255)*255
+        return self.model.forward(test_input/255)*255.to('cpu')
 
 if __name__ == '__main__':
     
@@ -498,8 +507,8 @@ if __name__ == '__main__':
     noisy_imgs, clean_imgs = torch.load('val_data.pkl')
     print('DATA IMPORTED')
     
-    noisy_imgs_1 = noisy_imgs_1 / 255
-    noisy_imgs_2 = noisy_imgs_2 / 255
+    noisy_imgs_1 = noisy_imgs_1
+    noisy_imgs_2 = noisy_imgs_2
 
     model = Model()
 #     model.load_pretrained_model()
