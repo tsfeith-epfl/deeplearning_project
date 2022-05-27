@@ -265,8 +265,8 @@ class Conv2d():
         
         # compute dLdW
         self.grad = grad.to(self.device)
-
-        actual = grad.view(self.input.shape[0], self.out_channels, -1).bmm(self.unfolded.transpose(1,2)).sum(dim = 0).view(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1])
+        
+        actual = self.grad.view(self.input.shape[0], self.out_channels, -1).bmm(self.unfolded.transpose(1,2)).sum(dim = 0).view(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1])
 
         self.weight.grad.add_(actual)
 
@@ -274,7 +274,7 @@ class Conv2d():
         self.bias.grad += self.grad.sum((0,2,3))
 
         # compute the gradient dLdX
-        input_ =  self.weight.view(-1, self.out_channels) @ grad.view(self.input.shape[0],self.out_channels,-1)
+        input_ =  self.weight.view(-1, self.out_channels) @ self.grad.view(self.input.shape[0],self.out_channels,-1)
         dLdX = fold(input_, kernel_size = self.kernel_size, output_size = (self.input.shape[2],self.input.shape[3]),stride = self.stride,padding = self.padding)
 
         return dLdX.to('cpu')
