@@ -60,7 +60,7 @@ class ReLU():
     
     def to(self, device):
         pass
-    
+
 class Sigmoid():
 
     def __init__(self):
@@ -86,8 +86,8 @@ class Sigmoid():
        
     def to(self, device):
         pass
-        
-## LOSS FUNCTIONS
+
+# # LOSS FUNCTIONS
 
 class MSE():
     def __init__(self):
@@ -260,7 +260,8 @@ class Conv2d():
                              math.floor((self.input.shape[3] + 2*self.padding[1] - self.dilation[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
         output = torch.empty(self.input.shape).to(self.device)
         unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dilation, padding=0, stride=self.stride).to(self.device)
-
+        self.unfolded = unfolded
+        
         if self.use_bias:
             wxb = self.weight.view(self.out_channels, -1) @ unfolded + self.bias.view(1, -1, 1)
         else:
@@ -280,19 +281,8 @@ class Conv2d():
         # compute dLdW
         self.grad = grad
 
-        unfolded = unfold(self.input, kernel_size = (self.grad.shape[2], self.grad.shape[3]), dilation=self.stride).view(self.input.shape[0],
-                                                                                                                         self.in_channels,
-                                                                                                                         self.grad.shape[2] * self.grad.shape[3],
-                                                                                                                         self.kernel_size[0] * self.kernel_size[1]).to(self.device)
+        actual = grad.view(self.input.shape[0], self.out_channels, -1).bmm(self.unfolded.transpose(1,2)).sum(dim = 0).view(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1])
 
-        # wxb = grad.view(self.input.shape[0]*self.out_channels,-1) @ unfolded
-        wxb = torch.empty(self.in_channels, self.out_channels, self.kernel_size[0]*self.kernel_size[1]).zero_().to(self.device)
-
-        for i in range(self.input.shape[0]):
-            partial = (grad.reshape(self.input.shape[0],self.out_channels,-1)[i] @ unfolded[i, :]).to(self.device)
-            wxb += partial
-
-        actual = wxb.transpose(0,1).view(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1])
         self.weight.grad.add_(actual)#with b=1 .mean(0) makes a mess
 
         # compute the gradient dLdb
@@ -589,7 +579,7 @@ if __name__ == '__main__':
     noisy_imgs_2 = noisy_imgs_2 / 255
 
     model = Model()
-    model.load_pretrained_model()
+#     model.load_pretrained_model()
     model.train(noisy_imgs_1, noisy_imgs_2, 1)
     model.save_model()
 
