@@ -495,7 +495,7 @@ class Model():
             Tensor of size (N1, C, H, W) containing the denoised signal.
         """
         test_input = test_input.float()
-        return self.model.forward(test_input/255)*255.to('cpu')
+        return (self.model.forward(test_input/255)*255).to('cpu')
 
 if __name__ == '__main__':
     
