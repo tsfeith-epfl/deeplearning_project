@@ -1,38 +1,15 @@
-import torch
+from torch.nn.functional import fold, unfold
 import math
 import pickle
+import torch
 torch.set_grad_enabled(False)
 
-
-# we want to build the following model
-# Sequential (Conv(stride 2),
-#             ReLU,
-#             Conv(stride 2),
-#             ReLU,
-#             Upsampling,
-#             ReLU,
-#             Upsampling,
-#             Sigmoid)
-
-# Suggested structure
-# HOWEVER GRADING WILL REWARD ORIGINALITY
-"""
-class Module(object):
-    def forward(self, *args):
-        raise NotImplementedError
-    def backward(self, *gradwrtoutput):
-        raise NotImplementedError
-    def param(self):
-        return []
-"""
-
-# ACTIVATION FUNCTIONS
 
 class ReLU():
 
     def __init__(self):
         """
-        Set the name of the module
+        Set the name and the device for the module
         """
         self.name = "RelU"
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -54,6 +31,9 @@ class ReLU():
         return zeros
 
     def params(self):
+        """
+        In this case there are no parameters
+        """
         return []
     
     def to(self, device):
@@ -63,7 +43,7 @@ class Sigmoid():
 
     def __init__(self):
         """
-        Set the name of the module
+        Set the name and device for the module
         """
         self.name = "Sigmoid"
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -82,30 +62,32 @@ class Sigmoid():
         return 1 / (1 + (-grad).exp()) * (1 - 1 / (1 + (-grad).exp()))
     
     def params(self):
+        """
+        In this case there are no parameters
+        """
         return []
        
     def to(self, device):
         pass
 
-# # LOSS FUNCTIONS
-
 class MSE():
+    """
+    Mean Squared Error
+    """
     def __init__(self):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
     def forward(self, predictions, targets):
         """
-        Mean Squared Error: MSE(x) = 1/N * (y - f(x))^2
+        Mean Squared Error: MSE(x) = 1/N * sum((y - f(x))^2)
         """
         self.predictions, self.targets = predictions.to(self.device), targets.to(self.device)
-        return ((self.predictions - self.targets)**2).sum()
+        return ((self.predictions - self.targets)**2).mean()
         
     def backward(self):
         """
         Derivative of MSE = 2/N * (y - f(x))
         """
-        return 2/self.predictions.numel() * (self.predictions - self.targets)
-
-# -
+        return 2/self.predictions.shape[0] * (self.predictions - self.targets)
 
 class SGD():
     """
@@ -113,27 +95,30 @@ class SGD():
     """
     def __init__(self, params, lr):
         """
-        Inputs: model's parameters and learning rate
+        Initialize: model's parameters and learning rate
         """
         self.params = params
         self.lr = lr
     
     def step(self):
         """
-        Perform one step of Stochastig Gradient Descnet
+        Perform one step of Stochastig Gradient Descent
         """
         for param in self.params:
             param -= self.lr*param.grad
         
     def zero_grad(self):
         """
-        Zero all the gradients.
+        Zero all the gradients
         """
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         for param in self.params: param.grad = torch.empty(param.shape).zero_().to(device)
 
 
-class Sequential(): #I may need also functions 
+class Sequential():
+    """
+    Container class for the different modules
+    """
     def __init__(self, *args):
         """
         Initialize an empty list in which we're going to append the modules
@@ -187,10 +172,6 @@ class Sequential(): #I may need also functions
                 module.to(device)
 
 
-# +
-from torch.nn.functional import fold, unfold
-##ADD weights initialization
-
 class Conv2d():
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, bias = True):
         """
@@ -241,10 +222,13 @@ class Conv2d():
         k = math.sqrt(1/(self.in_channels*self.kernel_size[0]*self.kernel_size[1]))
 
         self.use_bias = bias
+        
+        # Initialize the weigths according to a uniform distribution
         self.weight = torch.empty(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]).uniform_(-k, k).to(self.device)
         self.weight.grad = torch.empty(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]).zero_().to(self.device)
         
         if self.use_bias:
+            # Initialize the biases according to a uniform distribution
             self.bias = torch.empty(self.out_channels).uniform_(-k, k).to(self.device)
             self.bias.grad = torch.empty(self.out_channels).zero_().to(self.device)
             
@@ -255,24 +239,25 @@ class Conv2d():
         self.input = input_.to(self.device)
         self.output_shape = (math.floor((self.input.shape[2] + 2*self.padding[0] - self.dilation[0]*(self.kernel_size[0] - 1) - 1)/self.stride[0] + 1),
                              math.floor((self.input.shape[3] + 2*self.padding[1] - self.dilation[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
-        output = torch.empty(self.input.shape).to(self.device)
-        unfolded = unfold(self.input, kernel_size = self.kernel_size,  dilation=self.dilation, padding=0, stride=self.stride).to(self.device)
+        
+        unfolded = unfold(self.input, kernel_size = self.kernel_size,  dilation=self.dilation, padding=self.padding, stride=self.stride).to(self.device)
+        
+        # save unfolded to use it in the backward pass
         self.unfolded = unfolded
 
         if self.use_bias:
             wxb = self.weight.view(self.out_channels, -1) @ unfolded + self.bias.view(1, -1, 1)
         else:
             wxb = self.weight.view(self.out_channels, -1) @ unfolded
+            
         wxb = wxb.to(self.device)
         actual = wxb.view(input_.shape[0], self.out_channels, self.output_shape[0], self.output_shape[1]).to(self.device)
+        
         return actual
         
     def backward(self, grad):
         """
         Compute gradients wrt parameters(w, b) and input(x)
-        dL/dw = conv(x, dL/dy)
-        dL/db = eye(y.shape)
-        dL/dx = 
         """
         
         # compute dLdW
@@ -280,25 +265,21 @@ class Conv2d():
 
         actual = grad.view(self.input.shape[0], self.out_channels, -1).bmm(self.unfolded.transpose(1,2)).sum(dim = 0).view(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1])
 
-        self.weight.grad.add_(actual)#with b=1 .mean(0) makes a mess
+        self.weight.grad.add_(actual)
 
         # compute the gradient dLdb
         self.bias.grad += self.grad.sum((0,2,3))
 
         # compute the gradient dLdX
-        kernel_mirrored = self.weight.flip([2,3]).to(self.device)
-
-        expanded_grad = torch.empty(self.input.shape[0], self.out_channels, (grad.shape[2]-1) * (self.stride[0] - 1) + grad.shape[2], (grad.shape[3]-1) * (self.stride[1] - 1) + grad.shape[3]).zero_().to(self.device)
-        expanded_grad[:, :, ::self.stride[0], ::self.stride[1]] = self.grad
-
-        unfolded = unfold(expanded_grad, kernel_size = self.kernel_size, padding = (self.kernel_size[0] - 1, self.kernel_size[1] - 1)).to(self.device)
-
-        corrected_kernel = kernel_mirrored.view(self.in_channels, self.kernel_size[0] * self.kernel_size[1] * self.out_channels).to(self.device)
-        dLdX = (corrected_kernel @ unfolded).view(self.input.shape).to(self.device)
+        input_ =  self.weight.view(-1, self.out_channels) @ grad.view(self.input.shape[0],self.out_channels,-1)
+        dLdX = fold(input_, kernel_size = self.kernel_size, output_size = (self.input.shape[2],self.input.shape[3]),stride = self.stride,padding = self.padding)
 
         return dLdX
 
     def params(self):
+        """
+        Store the parameters
+        """
         return [self.weight, self.bias]
 
     def to(self, device):
@@ -306,14 +287,16 @@ class Conv2d():
             param.to(device)
 
 class Upsampling():
-    def __init__(self, scale_factor, in_channels, out_channels):
+    def __init__(self, scale_factor, in_channels, out_channels, kernel_size = 3, padding=1):
         """
         Store the attributes
         """
         self.scale_factor = scale_factor
         self.in_channels = in_channels
         self.out_channels = out_channels
-        self.conv = Conv2d(self.in_channels, self.out_channels, kernel_size=1, stride = 1, padding = 0)
+        self.padding = padding
+        self.kernel_size = kernel_size 
+        self.conv = Conv2d(self.in_channels, self.out_channels, kernel_size=self.kernel_size, stride = 1, padding = self.padding)
         self.weight, self.bias = self.conv.params()
         self.nearest_upsampling = NearestUpsampling(self.scale_factor)
         self.name = "Upsampling"
@@ -332,12 +315,18 @@ class Upsampling():
         return self.out_conv
     
     def backward(self, grad):
+        """
+        Combine the backward passes of Conv2d and NearestUpsampling
+        """
         grad_1 = self.conv.backward(grad)
         grad_2 = self.nearest_upsampling.backward(grad_1)
         
         return grad_2
         
     def params(self):
+        """
+        Store the parameters
+        """
         return [self.weight, self.bias]
 
     def to(self, device):
@@ -352,8 +341,6 @@ class NearestUpsampling():
         """
         self.scale_factor = scale_factor
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    def params(self):
-        return []
         
     def forward(self, input_):
         """
@@ -373,10 +360,12 @@ class NearestUpsampling():
         wxb = (self.filter_ones@unfolded).to(self.device)
         actual = wxb.view(grad.shape[0], grad.shape[1], grad.shape[2]//self.scale_factor,grad.shape[3]//self.scale_factor)
         return actual
-
-# Working space below
-
-import torch
+    
+    def params(self):
+        """
+        Store the attributes
+        """
+        return []
 
 class Model():
     def __init__(self):
@@ -404,45 +393,43 @@ class Model():
         self.mini_batch_size = 100
 
     def save_model(self):
-      """
-      This saves the parameters in bestmodel.pth.
+        """
+        This saves the parameters in bestmodel.pth.
 
-      Returns
-      -------
-      None
-      """
-      state_dict = {}  
-      for i,layer in enumerate(self.model.layers):
-        if len(layer.params())==2:
-          state_dict[str(i)+"."+layer.name] = [layer.params()[0], layer.params()[1]]
-        elif len(layer.params())==1:
-          state_dict[str(i)+"."+layer.name] = layer.params()[0]
-        else:
-          state_dict[str(i)+"."+layer.name] = []
+        Returns
+        -------
+        None
+        """
+        state_dict = {}  
+        for i,layer in enumerate(self.model.layers):
+            if len(layer.params())==2:
+                state_dict[str(i)+"."+layer.name] = [layer.params()[0], layer.params()[1]]
+            elif len(layer.params())==1:
+                state_dict[str(i)+"."+layer.name] = layer.params()[0]
+            else:
+                state_dict[str(i)+"."+layer.name] = []
 
-      outfile = open("bestmodel.pth",'wb')
-      pickle.dump(state_dict,outfile)
-      print(state_dict)
-    # Working space below
+        outfile = open("bestmodel.pth",'wb')
+        pickle.dump(state_dict,outfile)
 
     def load_pretrained_model(self):
-      """
-      This loads the parameters saved in bestmodel.pth into the model.
+        """
+        This loads the parameters saved in bestmodel.pth into the model.
 
-      Returns
-      -------
-      None
-      """
-      from pathlib import Path
-      model_path = Path(__file__).parent / "bestmodel.pth"
-      infile = open(model_path,'rb')
-      params = pickle.load(infile)
-      for i,layer in enumerate(self.model.layers):
-        layer_params = params[str(i)+"."+layer.name]
-        if len(layer_params)==1:
-          layer.weight.copy_(layer_params[0])
-        elif len(layer_params)==2:
-          layer.bias.copy_(layer_params[1])
+        Returns
+        -------
+        None
+        """
+        from pathlib import Path
+        model_path = Path(__file__).parent / "bestmodel.pth"
+        infile = open(model_path,'rb')
+        params = pickle.load(infile)
+        for i,layer in enumerate(self.model.layers):
+            layer_params = params[str(i)+"."+layer.name]
+            if len(layer_params)==1:
+                layer.weight.copy_(layer_params[0])
+            elif len(layer_params)==2:
+                layer.bias.copy_(layer_params[1])
 
     def train(self,
               train_input,
@@ -468,7 +455,7 @@ class Model():
         train_input = train_input.to(self.device)
         train_target = train_target.to(self.device)
         print('\nTRAINING STARTING...')
-        n_samples = train_input.numel()
+        n_samples = train_input.shape[0]
         for e in range(num_epochs):
             epoch_loss = 0
             for b in range(0, train_input.size(0), self.mini_batch_size):
@@ -502,72 +489,7 @@ class Model():
         return self.model.forward(test_input/255)*255
 
 if __name__ == '__main__':
-    # Extensive series of tests
-    """
-    batch = 100
-    in_channels = 3
-    out_channels = 46
-    kernel_size = 3
-    in_size = 32
-    out_size = int((in_size - kernel_size) / 2 + 1)
     
-    x = torch.arange(batch*in_channels*in_size**2).view(batch,in_channels,in_size,in_size).to(torch.float)
-    y = (torch.arange(batch*out_channels*out_size**2).view(batch,out_channels,out_size,out_size) + torch.normal(0, 1, (batch,out_channels,out_size,out_size))).to(torch.float)
-    
-    conv = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride = 2)
-    conv_ours = Conv2d(in_channels, out_channels, kernel_size, stride = 2)
-
-    conv.weight = torch.nn.Parameter(torch.ones_like(conv.weight))
-    conv.bias = torch.nn.Parameter(torch.zeros_like(conv.bias))
-    
-    conv_ours.weight = torch.ones_like(conv_ours.weight)
-    conv_ours.weight.grad = torch.zeros_like(conv_ours.weight)
-    conv_ours.bias = torch.zeros_like(conv_ours.bias)
-    conv_ours.bias.grad = torch.zeros_like(conv_ours.bias)
-    
-    
-    if torch.allclose(conv.forward(x), conv_ours.forward(x)):
-        print('CONGRATS! The output is the same.')
-    else:
-        print('OOPS, something is still not quite right. Look at both outputs below.')
-        print(conv.forward(x))
-        print(conv_ours.forward(x))
-        
-    loss = torch.nn.MSELoss()
-    loss_ours = MSE()
-    
-    sgd = torch.optim.SGD([conv.weight, conv.bias], lr = 0.001)
-    sgd_ours = SGD(conv_ours.params(), lr = 0.001)
-    
-    output = conv.forward(x)
-    output_ours = conv_ours.forward(x)
-        
-    loss_val = loss.forward(output,y).requires_grad_()
-    loss_val_ours = loss_ours.forward(output_ours,y)
-    loss_val.backward()
-    grad = loss_ours.backward()
-    conv_ours.backward(grad)
-    sgd.step()
-    sgd_ours.step()
-        
-    if torch.allclose(conv.weight, conv_ours.weight):
-        print('CONGRATS! The updated weights are identical.')
-    else:
-        print('OOPS, something is still not quite right. Look at both weights below.')
-        print(conv.weight)
-        print(conv_ours.weight)    
-
-    if torch.allclose(conv.bias, conv_ours.bias):
-        print('CONGRATS! The updated biases are identical.')
-    else:
-        print('OOPS, something is still not quite right. Look at both biases below.')
-        print(conv.bias)
-        print(conv_ours.bias)
-    
-    """
-    # model = Model()
-    # out = model.predict(torch.rand(1, 3, 512, 512) * 255)
-    # print(out.shape)
     
     from pathlib import Path
     # data_path = Path(__file__).parent
