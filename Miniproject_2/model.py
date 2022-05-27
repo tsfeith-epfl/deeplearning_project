@@ -1,6 +1,5 @@
 import torch
 import math
-import pickle
 torch.set_grad_enabled(False)
 
 
@@ -29,13 +28,6 @@ class Module(object):
 # ACTIVATION FUNCTIONS
 
 class ReLU():
-
-    def __init__(self):
-        """
-        Set the name of the module
-        """
-        self.name = "RelU"
-
     def forward(self, input_):
         """
         ReLU(x) = max(0, x): returns the max between 0 and the input
@@ -60,15 +52,8 @@ class ReLU():
     
     def to(self, device):
         pass
-    
+
 class Sigmoid():
-
-    def __init__(self):
-        """
-        Set the name of the module
-        """
-        self.name = "Sigmoid"
-
     def forward(self, input_):
         """
         Sigmoid(x) = 1/(1+e^(-x))
@@ -86,8 +71,8 @@ class Sigmoid():
        
     def to(self, device):
         pass
-        
-## LOSS FUNCTIONS
+
+# # LOSS FUNCTIONS
 
 class MSE():
     def __init__(self):
@@ -138,7 +123,6 @@ class Sequential(): #I may need also functions
         """
         Initialize an empty list in which we're going to append the modules
         """
-        self.layers = args
         self.model = []
         for module in args:
             self.model.append(module)
@@ -202,8 +186,7 @@ class Conv2d():
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.in_channels = in_channels
         self.out_channels = out_channels
-        self.name = "Conv2d"
-
+        
         if isinstance(kernel_size, int):
             self.kernel_size = (kernel_size,kernel_size)
         elif isinstance(kernel_size, tuple):
@@ -260,7 +243,8 @@ class Conv2d():
                              math.floor((self.input.shape[3] + 2*self.padding[1] - self.dilation[1]*(self.kernel_size[1] - 1) - 1)/self.stride[1]  + 1))
         output = torch.empty(self.input.shape).to(self.device)
         unfolded = unfold(input_, kernel_size = self.kernel_size,  dilation=self.dilation, padding=0, stride=self.stride).to(self.device)
-
+        self.unfolded = unfolded
+        
         if self.use_bias:
             wxb = self.weight.view(self.out_channels, -1) @ unfolded + self.bias.view(1, -1, 1)
         else:
@@ -280,20 +264,10 @@ class Conv2d():
         # compute dLdW
         self.grad = grad
 
-        unfolded = unfold(self.input, kernel_size = (self.grad.shape[2], self.grad.shape[3]), dilation=self.stride).view(self.input.shape[0],
-                                                                                                                         self.in_channels,
-                                                                                                                         self.grad.shape[2] * self.grad.shape[3],
-                                                                                                                         self.kernel_size[0] * self.kernel_size[1]).to(self.device)
 
-        # wxb = grad.view(self.input.shape[0]*self.out_channels,-1) @ unfolded
-        wxb = torch.empty(self.in_channels, self.out_channels, self.kernel_size[0]*self.kernel_size[1]).zero_().to(self.device)
+        actual = grad.view(self.input.shape[0], self.out_channels, -1).bmm(self.unfolded.transpose(1,2)).sum(dim = 0).view(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1])
 
-        for i in range(self.input.shape[0]):
-            partial = (grad.reshape(self.input.shape[0],self.out_channels,-1)[i] @ unfolded[i, :]).to(self.device)
-            wxb += partial
-
-        actual = wxb.transpose(0,1).view(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1])
-        self.weight.grad.add_(actual)#with b=1 .mean(0) makes a mess
+        self.weight.grad.add_(actual)
 
         # compute the gradient dLdb
         self.bias.grad += self.grad.sum((0,2,3))
@@ -327,9 +301,7 @@ class Upsampling():
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.conv = Conv2d(self.in_channels, self.out_channels, kernel_size=1, stride = 1, padding = 0)
-        self.weight, self.bias = self.conv.params()
         self.nearest_upsampling = NearestUpsampling(self.scale_factor)
-        self.name = "Upsampling"
         
     def forward(self, input_):
         """
@@ -350,7 +322,7 @@ class Upsampling():
         return grad_2
         
     def params(self):
-        return [self.weight, self.bias]
+        return self.conv.params()
 
     def to(self, device):
         for param in self.conv.params():
@@ -413,46 +385,21 @@ class Model():
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.model.to(self.device)
 
-        self.mini_batch_size = 100
-
-    def save_model(self):
-      """
-      This saves the parameters in bestmodel.pth.
-
-      Returns
-      -------
-      None
-      """
-      state_dict = {}  
-      for i,layer in enumerate(self.model.layers):
-        if len(layer.params())==2:
-          state_dict[str(i)+"."+layer.name] = [layer.params()[0], layer.params()[1]]
-        elif len(layer.params())==1:
-          state_dict[str(i)+"."+layer.name] = layer.params()[0]
-        else:
-          state_dict[str(i)+"."+layer.name] = []
-
-      outfile = open("bestmodel.pth",'wb')
-      pickle.dump(state_dict,outfile)
-      print(state_dict)
-    # Working space below
+        self.mini_batch_size = 200
 
     def load_pretrained_model(self):
-      """
-      This loads the parameters saved in bestmodel.pth into the model.
+        """
+        This loads the parameters saved in bestmodel.pth into the model.
 
-      Returns
-      -------
-      None
-      """
-      infile = open("bestmodel.pth",'rb')
-      params = pickle.load(infile)
-      for i,layer in enumerate(self.model.layers):
-        layer_params = params[str(i)+"."+layer.name]
-        if len(layer_params)==1:
-          layer.weight.copy_(layer_params[0])
-        elif len(layer_params)==2:
-          layer.bias.copy_(layer_params[1])
+        Returns
+        -------
+        None
+        """
+        from pathlib import Path
+        model_path = Path(__file__).parent / "bestmodel.pth"
+        model = torch.load(model_path, map_location='cpu')
+        self.model.load_state_dict(model)
+        self.model = self.model.to(self.device)
 
     def train(self,
               train_input,
@@ -486,6 +433,7 @@ class Model():
                 train = train_input.narrow(0, b, self.mini_batch_size)
                 target = train_target.narrow(0, b, self.mini_batch_size)
                 output = self.model.forward(train)
+                print(output.mean())
                 loss = self.criterion.forward(output, target)
                 epoch_loss += loss.item()/n_samples
                 grad = self.criterion.backward()
@@ -579,20 +527,20 @@ if __name__ == '__main__':
     # print(out.shape)
     
     from pathlib import Path
-    # data_path = Path(__file__).parent
+    data_path = Path(__file__).parent
     
-    noisy_imgs_1, noisy_imgs_2 = torch.load('train_data.pkl')
-    noisy_imgs, clean_imgs = torch.load('val_data.pkl')
+    noisy_imgs_1, noisy_imgs_2 = torch.load(data_path / 'train_data.pkl')
+    noisy_imgs, clean_imgs = torch.load(data_path / 'val_data.pkl')
     print('DATA IMPORTED')
     
     noisy_imgs_1 = noisy_imgs_1 / 255
     noisy_imgs_2 = noisy_imgs_2 / 255
 
     model = Model()
-    model.load_pretrained_model()
-    model.train(noisy_imgs_1, noisy_imgs_2, 1)
-    model.save_model()
+    # model.load_pretrained_model()
+    model.train(noisy_imgs_1, noisy_imgs_2, 10)
+    # torch.save(model.state_dict(), f"./outputs_{experiment_name}/bestmodel.pth")
 
-    # output = model.predict(noisy_imgs)
-    # print(f'PSNR: {psnr(output/255, clean_imgs/255)} dB')
+    output = model.predict(noisy_imgs)
+    print(f'PSNR: {psnr(output/255, clean_imgs/255)} dB')
     
